@@ -25,6 +25,21 @@ java {
     }
 }
 
+// build fat jar
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "com.gdep.App"
+    }
+
+    from({
+        configurations.runtimeClasspath.get().map { 
+            if (it.isDirectory()) it else zipTree(it) 
+        }
+    })
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 application {
     // Define the main class for the application.
     mainClass = "com.gdep.App"
