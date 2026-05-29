@@ -7,21 +7,24 @@ import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class App {
+    public static class FileAndHash {
+        public String file;
+        public String hash;
+    }
+
     public static void main(String[] args) {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
-
-        class FileAndHash {
-            public String file;
-            public String hash;
-        };
 
         List<FileAndHash> fhList = new ArrayList<>();
     
@@ -59,16 +62,43 @@ public class App {
                 fh.hash = Util.hashFileToString(fh.file);
             }
 
+            Set<String> hashSet = getCacheHashSet(cacheDir);
+
             for (final FileAndHash fh : fhList) {
-                String fileName = Path.of(fh.file).getFileName().toString();
-                Util.extractZip(
-                        fh.file,
-                        Path.of(cacheDir, fileName + "-" + fh.hash).toString()
-                );
+                if (!hashSet.contains(fh.hash)) {
+                    String fileName = Path.of(fh.file).getFileName().toString();
+                    Util.extractZip(
+                            fh.file,
+                            Path.of(cacheDir, fileName + "-" + fh.hash).toString()
+                    );
+                }
             }
         }catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private static Set<String> getCacheHashSet(String cacheDir) throws IOException {
+        Path cacheDirPath = Path.of(cacheDir);
+
+        Set<String> hashes = new HashSet<>();
+
+        if (!Files.isDirectory(cacheDirPath)) {
+            return hashes;
+        }
+
+        try(DirectoryStream<Path> dirStream = Files.newDirectoryStream(cacheDirPath)) {
+            for (Path dirent : dirStream) {
+                if (Files.isDirectory(dirent)) {
+                    String name = dirent.getFileName().toString();
+                    if (name.length() >= 64) {
+                        hashes.add(name.substring(name.length() - 64, name.length()));
+                    }
+                }
+            }
+        }
+
+        return hashes;
     }
 
     private static Set<EclipseExternalDependency> getProjectDependencies(
