@@ -5,10 +5,8 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.gradle.tooling.GradleConnector;
@@ -18,12 +16,7 @@ import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 
 public class App {
-    public static class JavaCode {
-        public String sourceJarPath;
-        public String sourceJarHash;
-
-        public String sourceDirPath;
-    }
+    public static record JavaCode(String sourceJarPath, String sourceJarHash, String sourceDirPath) {}
 
     public static record CachedJavaCode(String sourceJarHash, String sourceDirPath) {}
 
@@ -31,7 +24,19 @@ public class App {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
 
-        List<JavaCode> jcList = new ArrayList<>();
+        try {
+            Set<JavaCode> javaCodes = getExternalJavaCodes(cwd, cacheDir);
+
+            for (final JavaCode jc : javaCodes) {
+                Util.runCommand("rg", "-i", "meme", jc.sourceDirPath);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static Set<JavaCode> getExternalJavaCodes(String cwd, String cacheDir) throws IOException {
+        Set<String> sourceJarPaths = new HashSet<>();
 
         ProjectConnection connection = GradleConnector.newConnector()
                 .forProjectDirectory(new File(cwd))
@@ -47,58 +52,42 @@ public class App {
                 File sourceFile = dep.getSource();
                 File javaDocFile = dep.getJavadoc();
 
-                System.out.println(classFile);
-                System.out.println(sourceFile);
-                System.out.println(javaDocFile);
+                // System.out.println(classFile);
+                // System.out.println(sourceFile);
+                // System.out.println(javaDocFile);
 
                 if (sourceFile != null) {
-                    JavaCode jc = new JavaCode();
-                    jc.sourceJarPath = sourceFile.getCanonicalPath();
-                    jcList.add(jc);
+                    sourceJarPaths.add(sourceFile.getCanonicalPath());
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
         } finally {
             connection.close();
         }
 
-        try {
-            for (final JavaCode jc : jcList) {
-                jc.sourceJarHash = Util.hashFileToString(jc.sourceJarPath);
+        Set<JavaCode> javaCodes = new HashSet<>();
+
+        Map<String, CachedJavaCode> cachedJcs = getCachedJavaCode(cacheDir);
+
+        for (final String sourceJarPath : sourceJarPaths) {
+            String sourceJarHash = Util.hashFileToString(sourceJarPath);
+
+            if (!cachedJcs.containsKey(sourceJarHash)) {
+                String fileName = Path.of(sourceJarPath).getFileName().toString();
+
+                String sourceDirPath =
+                        Path.of(cacheDir, fileName + "-" + sourceJarHash).toString();
+
+                Util.extractZip(sourceJarPath, sourceDirPath);
+
+                javaCodes.add(new JavaCode(sourceJarPath, sourceJarHash, sourceDirPath));
+            } else {
+                String sourceDirPath = cachedJcs.get(sourceJarHash).sourceDirPath();
+
+                javaCodes.add(new JavaCode(sourceJarPath, sourceJarHash, sourceDirPath));
             }
-
-            Map<String, CachedJavaCode> cachedJcs = getCachedJavaCode(cacheDir);
-
-            for (final JavaCode jc : jcList) {
-                if (!cachedJcs.containsKey(jc.sourceJarHash)) {
-                    String fileName = Path.of(jc.sourceJarPath).getFileName().toString();
-
-                    jc.sourceDirPath =
-                            Path.of(cacheDir, fileName + "-" + jc.sourceJarHash).toString();
-
-                    Util.extractZip(jc.sourceJarPath, jc.sourceDirPath);
-                } else {
-                    jc.sourceDirPath = cachedJcs.get(jc.sourceJarHash).sourceDirPath();
-                }
-            }
-
-            for (final JavaCode jc : jcList) {
-                runCommand("rg", "-i", "meme", jc.sourceDirPath);
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
         }
-    }
 
-    private static int runCommand(String... commands) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(commands);
-        pb.inheritIO();
-        Process process = pb.start();
-        process.waitFor();
-
-        return process.exitValue();
+        return javaCodes;
     }
 
     private static Map<String, CachedJavaCode> getCachedJavaCode(String cacheDir) throws IOException {

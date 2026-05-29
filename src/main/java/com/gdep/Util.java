@@ -46,6 +46,15 @@ public class Util {
         }
     }
 
+    public static int runCommand(String... commands) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(commands);
+        pb.inheritIO();
+        Process process = pb.start();
+        process.waitFor();
+
+        return process.exitValue();
+    }
+
     public static byte[] hashFile(String src) throws IOException {
         MessageDigest digest = null;
 
