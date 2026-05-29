@@ -1,5 +1,9 @@
+import com.diffplug.spotless.LineEnding
+
 plugins {
     application
+
+    id("com.diffplug.spotless").version("8.6.0")
 }
 
 repositories {
@@ -23,6 +27,15 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+// formatter setting
+spotless {
+     java {
+         lineEndings= LineEnding.UNIX
+         removeUnusedImports()
+         palantirJavaFormat()
+     }
 }
 
 // build fat jar

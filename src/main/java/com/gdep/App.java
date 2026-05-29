@@ -1,22 +1,21 @@
 package com.gdep;
 
-import org.gradle.tooling.GradleConnector;
-import org.gradle.tooling.ProjectConnection;
-import org.gradle.tooling.model.DomainObjectSet;
-import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
-import org.gradle.tooling.model.eclipse.EclipseProject;
-
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.gradle.tooling.GradleConnector;
+import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.model.DomainObjectSet;
+import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
+import org.gradle.tooling.model.eclipse.EclipseProject;
 
 public class App {
     public static class JavaCode {
@@ -26,27 +25,23 @@ public class App {
         public String sourceDirPath;
     }
 
-    public static record CachedJavaCode (
-        String sourceJarHash,
-        String sourceDirPath
-    ){
-    }
+    public static record CachedJavaCode(String sourceJarHash, String sourceDirPath) {}
 
     public static void main(String[] args) {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
 
         List<JavaCode> jcList = new ArrayList<>();
-    
+
         ProjectConnection connection = GradleConnector.newConnector()
-            .forProjectDirectory(new File(cwd))
-            .connect();
-            
+                .forProjectDirectory(new File(cwd))
+                .connect();
+
         // collect where source jar files are for external dependencies
         try {
             EclipseProject project = connection.getModel(EclipseProject.class);
             Set<EclipseExternalDependency> deps = getProjectDependencies(project);
-            
+
             for (final EclipseExternalDependency dep : deps) {
                 File classFile = dep.getFile();
                 File sourceFile = dep.getSource();
@@ -62,9 +57,9 @@ public class App {
                     jcList.add(jc);
                 }
             }
-        } catch(Exception e) {
+        } catch (Exception e) {
             e.printStackTrace();
-        }finally {
+        } finally {
             connection.close();
         }
 
@@ -79,13 +74,10 @@ public class App {
                 if (!cachedJcs.containsKey(jc.sourceJarHash)) {
                     String fileName = Path.of(jc.sourceJarPath).getFileName().toString();
 
-                    jc.sourceDirPath = 
-                        Path.of(cacheDir, fileName + "-" + jc.sourceJarHash).toString();
+                    jc.sourceDirPath =
+                            Path.of(cacheDir, fileName + "-" + jc.sourceJarHash).toString();
 
-                    Util.extractZip(
-                            jc.sourceJarPath,
-                            jc.sourceDirPath
-                    );
+                    Util.extractZip(jc.sourceJarPath, jc.sourceDirPath);
                 } else {
                     jc.sourceDirPath = cachedJcs.get(jc.sourceJarHash).sourceDirPath();
                 }
@@ -95,13 +87,12 @@ public class App {
                 runCommand("rg", "-i", "meme", jc.sourceDirPath);
             }
 
-        }catch (Exception e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static int runCommand(String... commands) 
-            throws IOException, InterruptedException {
+    private static int runCommand(String... commands) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(commands);
         pb.inheritIO();
         Process process = pb.start();
@@ -110,8 +101,7 @@ public class App {
         return process.exitValue();
     }
 
-    private static Map<String, CachedJavaCode> getCachedJavaCode(String cacheDir) 
-            throws IOException {
+    private static Map<String, CachedJavaCode> getCachedJavaCode(String cacheDir) throws IOException {
 
         Path cacheDirPath = Path.of(cacheDir);
 
@@ -121,7 +111,7 @@ public class App {
             return caches;
         }
 
-        try(DirectoryStream<Path> dirStream = Files.newDirectoryStream(cacheDirPath)) {
+        try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(cacheDirPath)) {
             for (Path dirent : dirStream) {
                 if (Files.isDirectory(dirent)) {
                     String name = dirent.getFileName().toString();
@@ -129,11 +119,7 @@ public class App {
                         String hash = name.substring(name.length() - 64, name.length());
                         caches.put(
                                 hash,
-                                new CachedJavaCode(
-                                    hash,
-                                    dirent.toAbsolutePath().toString()
-                                )
-                        );
+                                new CachedJavaCode(hash, dirent.toAbsolutePath().toString()));
                     }
                 }
             }
@@ -142,19 +128,14 @@ public class App {
         return caches;
     }
 
-    private static Set<EclipseExternalDependency> getProjectDependencies(
-            EclipseProject project
-    ) {
+    private static Set<EclipseExternalDependency> getProjectDependencies(EclipseProject project) {
         Set<EclipseExternalDependency> deps = new HashSet<>();
         getProjectDependenciesImpl(deps, project);
 
         return deps;
     }
 
-    private static void getProjectDependenciesImpl(
-            Set<EclipseExternalDependency> deps,
-            EclipseProject project
-    ) {
+    private static void getProjectDependenciesImpl(Set<EclipseExternalDependency> deps, EclipseProject project) {
         DomainObjectSet<? extends EclipseExternalDependency> projectDeps = project.getClasspath();
 
         deps.addAll(projectDeps);
