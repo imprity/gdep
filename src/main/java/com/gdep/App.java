@@ -12,26 +12,37 @@ import java.nio.file.Path;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class App {
-    public static class FileAndHash {
-        public String file;
-        public String hash;
+    public static class JavaCode {
+        public String sourceJarPath;
+        public String sourceJarHash;
+
+        public String sourceDirPath;
+    }
+
+    public static record CachedJavaCode (
+        String sourceJarHash,
+        String sourceDirPath
+    ){
     }
 
     public static void main(String[] args) {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
 
-        List<FileAndHash> fhList = new ArrayList<>();
+        List<JavaCode> jcList = new ArrayList<>();
     
         ProjectConnection connection = GradleConnector.newConnector()
             .forProjectDirectory(new File(cwd))
             .connect();
             
+        // collect where source jar files are for external dependencies
         try {
             EclipseProject project = connection.getModel(EclipseProject.class);
             Set<EclipseExternalDependency> deps = getProjectDependencies(project);
@@ -46,9 +57,9 @@ public class App {
                 System.out.println(javaDocFile);
 
                 if (sourceFile != null) {
-                    FileAndHash fh = new FileAndHash();
-                    fh.file = sourceFile.getCanonicalPath();
-                    fhList.add(fh);
+                    JavaCode jc = new JavaCode();
+                    jc.sourceJarPath = sourceFile.getCanonicalPath();
+                    jcList.add(jc);
                 }
             }
         } catch(Exception e) {
@@ -58,33 +69,56 @@ public class App {
         }
 
         try {
-            for (final FileAndHash fh : fhList) {
-                fh.hash = Util.hashFileToString(fh.file);
+            for (final JavaCode jc : jcList) {
+                jc.sourceJarHash = Util.hashFileToString(jc.sourceJarPath);
             }
 
-            Set<String> hashSet = getCacheHashSet(cacheDir);
+            Map<String, CachedJavaCode> cachedJcs = getCachedJavaCode(cacheDir);
 
-            for (final FileAndHash fh : fhList) {
-                if (!hashSet.contains(fh.hash)) {
-                    String fileName = Path.of(fh.file).getFileName().toString();
+            for (final JavaCode jc : jcList) {
+                if (!cachedJcs.containsKey(jc.sourceJarHash)) {
+                    String fileName = Path.of(jc.sourceJarPath).getFileName().toString();
+
+                    jc.sourceDirPath = 
+                        Path.of(cacheDir, fileName + "-" + jc.sourceJarHash).toString();
+
                     Util.extractZip(
-                            fh.file,
-                            Path.of(cacheDir, fileName + "-" + fh.hash).toString()
+                            jc.sourceJarPath,
+                            jc.sourceDirPath
                     );
+                } else {
+                    jc.sourceDirPath = cachedJcs.get(jc.sourceJarHash).sourceDirPath();
                 }
             }
+
+            for (final JavaCode jc : jcList) {
+                runCommand("rg", "-i", "meme", jc.sourceDirPath);
+            }
+
         }catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static Set<String> getCacheHashSet(String cacheDir) throws IOException {
+    private static int runCommand(String... commands) 
+            throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(commands);
+        pb.inheritIO();
+        Process process = pb.start();
+        process.waitFor();
+
+        return process.exitValue();
+    }
+
+    private static Map<String, CachedJavaCode> getCachedJavaCode(String cacheDir) 
+            throws IOException {
+
         Path cacheDirPath = Path.of(cacheDir);
 
-        Set<String> hashes = new HashSet<>();
+        Map<String, CachedJavaCode> caches = new HashMap<>();
 
         if (!Files.isDirectory(cacheDirPath)) {
-            return hashes;
+            return caches;
         }
 
         try(DirectoryStream<Path> dirStream = Files.newDirectoryStream(cacheDirPath)) {
@@ -92,13 +126,20 @@ public class App {
                 if (Files.isDirectory(dirent)) {
                     String name = dirent.getFileName().toString();
                     if (name.length() >= 64) {
-                        hashes.add(name.substring(name.length() - 64, name.length()));
+                        String hash = name.substring(name.length() - 64, name.length());
+                        caches.put(
+                                hash,
+                                new CachedJavaCode(
+                                    hash,
+                                    dirent.toAbsolutePath().toString()
+                                )
+                        );
                     }
                 }
             }
         }
 
-        return hashes;
+        return caches;
     }
 
     private static Set<EclipseExternalDependency> getProjectDependencies(
