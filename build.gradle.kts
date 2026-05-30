@@ -35,6 +35,7 @@ spotless {
          lineEndings= LineEnding.UNIX
          removeUnusedImports()
          palantirJavaFormat()
+         toggleOffOn()
      }
 }
 

@@ -5,10 +5,7 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.DomainObjectSet;
@@ -24,11 +21,35 @@ public class App {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
 
+        // TEST TEST TEST TEST TEST TEST
+        final String testClassName = "o.f.b.s.SimpleLogger";
+        // TEST TEST TEST TEST TEST TEST
+
         try {
             Set<JavaCode> javaCodes = getExternalJavaCodes(cwd, cacheDir);
 
+            record PathAndScore(String path, int score) {}
+
+            Set<PathAndScore> pathAndScores = new HashSet<>();
+
             for (final JavaCode jc : javaCodes) {
-                Util.runCommand("rg", "-i", "meme", jc.sourceDirPath);
+                List<String> files = Util.getFilesInDirectory(jc.sourceDirPath());
+
+                for (final String file : files) {
+                    int score = PackScore.scoreClassNameSimilarity(file, testClassName);
+
+                    pathAndScores.add(new PathAndScore(file, score));
+                }
+            }
+
+            List<String> candidates = pathAndScores.stream()
+                    .sorted((a, b) -> b.score() - a.score())
+                    .limit(5)
+                    .map(x -> x.path())
+                    .toList();
+
+            for (final String candidate : candidates) {
+                System.out.println(candidate);
             }
         } catch (Exception e) {
             e.printStackTrace();
