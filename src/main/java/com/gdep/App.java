@@ -2,6 +2,7 @@ package com.gdep;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,38 +22,60 @@ public class App {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = Path.of(cwd, "cache").toString();
 
-        // TEST TEST TEST TEST TEST TEST
-        final String testClassName = "o.f.b.s.SimpleLogger";
-        // TEST TEST TEST TEST TEST TEST
+        List<Command> commands = List.of(new Commands.Dirs(), new Commands.Files(), new Commands.Pack());
+
+        // if no arguments were given, just print help and exit
+        if (args.length == 0) {
+            printHelp(System.err, commands);
+            System.exit(1);
+        }
+
+        // if the fist argument is help, just print help and exit
+        if (args.length >= 1 && args[0].equals("help")) {
+            printHelp(System.out, commands);
+            System.exit(0);
+        }
+
+        Command toRun = null;
+
+        for (Command command : commands) {
+            if (command.getName().equals(args[0])) {
+                toRun = command;
+            }
+        }
+
+        if (toRun == null) {
+            System.err.println("Unknown command: " + args[0]);
+            System.err.println("");
+            printHelp(System.err, commands);
+            System.exit(1);
+        }
 
         try {
             Set<JavaCode> javaCodes = getExternalJavaCodes(cwd, cacheDir);
 
-            record PathAndScore(String path, int score) {}
-
-            Set<PathAndScore> pathAndScores = new HashSet<>();
-
-            for (final JavaCode jc : javaCodes) {
-                List<String> files = Util.getFilesInDirectory(jc.sourceDirPath());
-
-                for (final String file : files) {
-                    int score = PackScore.scoreClassNameSimilarity(file, testClassName);
-
-                    pathAndScores.add(new PathAndScore(file, score));
-                }
+            toRun.run(javaCodes, Arrays.copyOfRange(args, 1, args.length));
+        } catch (GracefulException e) {
+            System.err.println(e.getMessage());
+            if (e.shouldPrintHelp()) {
+                System.err.println("");
+                printHelp(System.err, commands);
             }
-
-            List<String> candidates = pathAndScores.stream()
-                    .sorted((a, b) -> b.score() - a.score())
-                    .limit(5)
-                    .map(x -> x.path())
-                    .toList();
-
-            for (final String candidate : candidates) {
-                System.out.println(candidate);
-            }
+            System.exit(1);
         } catch (Exception e) {
             e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    private static void printHelp(PrintStream out, List<Command> commands) {
+        out.println("gdep");
+        out.println("");
+        out.println("usage:");
+        out.println("");
+        out.println("help : prints this meesage");
+        for (final Command c : commands) {
+            out.println(c.getName() + " : " + c.getDescription());
         }
     }
 
