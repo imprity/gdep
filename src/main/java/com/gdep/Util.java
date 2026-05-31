@@ -62,6 +62,7 @@ public class Util {
         }
     }
 
+    // TODO: make it return file entires as well
     public static void extractZip(String src, String dst) throws IOException {
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(src)))) {
             ZipEntry entry = zis.getNextEntry();

@@ -1,6 +1,5 @@
 package com.gdep;
 
-import com.gdep.App.JavaCode;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,7 +20,7 @@ public class Commands {
         }
 
         @Override
-        public void run(Set<App.JavaCode> javaCodes, String[] args) {
+        public void run(List<SourceCode> javaCodes, String[] args) {
             List<String> sourceDirs =
                     javaCodes.stream().map(x -> x.sourceDirPath()).sorted().toList();
 
@@ -43,12 +42,11 @@ public class Commands {
         }
 
         @Override
-        public void run(Set<App.JavaCode> javaCodes, String[] args) throws IOException {
+        public void run(List<SourceCode> javaCodes, String[] args) throws IOException {
             List<String> files = new ArrayList<>();
 
-            for (final App.JavaCode code : javaCodes) {
-                List<String> subFiles = Util.getFilesInDirectory(code.sourceDirPath());
-                files.addAll(subFiles);
+            for (final SourceCode code : javaCodes) {
+                files.addAll(code.sourceFiles());
             }
 
             files.sort(Comparator.naturalOrder());
@@ -71,19 +69,32 @@ public class Commands {
         }
 
         @Override
-        public void run(Set<App.JavaCode> javaCodes, String[] args) throws IOException {
+        public void run(List<SourceCode> javaCodes, String[] args) throws IOException {
             if (args.length <= 0) {
                 throw new GracefulException("pack command needs atleast one argument").withHelp();
             }
 
-            record PathAndScore(String path, int score) {}
+            record PathAndScore(String path, int score) {
+                @Override
+                public int hashCode() {
+                    return path.hashCode();
+                }
+
+                @Override
+                public boolean equals(Object o) {
+                    if (this == o) return true;
+                    if (o == null) return false;
+                    if (o instanceof PathAndScore other) {
+                        return path.equals(other.path()) && score == other.score();
+                    }
+                    return false;
+                }
+            }
 
             Set<PathAndScore> pathAndScores = new HashSet<>();
 
-            for (final JavaCode jc : javaCodes) {
-                List<String> files = Util.getFilesInDirectory(jc.sourceDirPath());
-
-                for (final String file : files) {
+            for (final SourceCode jc : javaCodes) {
+                for (final String file : jc.sourceFiles()) {
                     int score = PackScore.scoreClassNameSimilarity(file, args[0]);
 
                     pathAndScores.add(new PathAndScore(file, score));

@@ -18,8 +18,11 @@ dependencies {
     // The tooling API need an SLF4J implementation available at runtime, replace this with any other implementation
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 
+    implementation ("com.google.code.gson:gson:2.14.0")
+
     // Use JUnit test framework.
     testImplementation(libs.junit)
+
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

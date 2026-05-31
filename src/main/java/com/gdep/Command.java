@@ -1,11 +1,11 @@
 package com.gdep;
 
-import java.util.Set;
+import java.util.List;
 
 public interface Command {
     String getName();
 
     String getDescription();
 
-    void run(Set<App.JavaCode> javaCodes, String[] args) throws Exception;
+    void run(List<SourceCode> sourceCodes, String[] args) throws Exception;
 }
