@@ -23,11 +23,13 @@ public class FuzzyMatch {
         }
     }
 
-    public static int fuzzyMatch(String a, String b) {
-        String str = a.length() > b.length() ? a : b;
-        String sub = a.length() > b.length() ? b : a;
+    public static int fuzzyMatch(String str, String sub) {
+        // we need to delete every character of sub to be str
+        if (str.isEmpty()) {
+            return sub.length();
+        }
 
-        if (sub.isEmpty() || str.isEmpty()) {
+        if (sub.isEmpty()) {
             return 0;
         }
 
@@ -69,9 +71,12 @@ public class FuzzyMatch {
             }
         }
 
-        // there is no matching word
+        // there are no matching characters
+        // so we need trim the sub to fit the str
+        // then change every character of trimmed sub to fit the str
+        // which is just the length of sub
         if (minCol == 0) {
-            return 0;
+            return sub.length();
         }
 
         int posX = minCol;
