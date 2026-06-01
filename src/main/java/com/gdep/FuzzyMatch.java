@@ -23,14 +23,32 @@ public class FuzzyMatch {
         }
     }
 
-    public static int fuzzyMatch(String str, String sub) {
+    public static record FuzzyMatchResult(
+            int begin, // where the sub string begins in str
+            int end, // where the sub string ends in str
+            int distance) {
+        public int length() {
+            return end - begin;
+        }
+    }
+
+    // Implementation of fuzzy match algorithm from wikipedia.
+    // https://en.wikipedia.org/wiki/Approximate_string_matching#Problem_formulation_and_algorithms
+    //
+    // According to the article, it's from the paper
+    // Sellers, Peter H. (1980). "The Theory and Computation of Evolutionary Distances: Pattern Recognition". Journal of
+    // Algorithms. 1 (4): 359–73. doi:10.1016/0196-6774(80)90016-4.
+    //
+    // But I'm not 100% sure.
+    public static FuzzyMatchResult fuzzyMatch(String str, String sub) {
         // we need to delete every character of sub to be str
         if (str.isEmpty()) {
-            return sub.length();
+            // return sub.length();
+            return new FuzzyMatchResult(0, 0, sub.length());
         }
 
         if (sub.isEmpty()) {
-            return 0;
+            return new FuzzyMatchResult(0, 0, 0);
         }
 
         final int width = str.length() + 1;
@@ -72,11 +90,12 @@ public class FuzzyMatch {
         }
 
         // there are no matching characters
-        // so we need trim the sub to fit the str
-        // then change every character of trimmed sub to fit the str
-        // which is just the length of sub
+        // so for every characters in sub,
+        // we need to change/add characters in str
+        //
+        // so the distance length of sub
         if (minCol == 0) {
-            return sub.length();
+            return new FuzzyMatchResult(0, 0, sub.length());
         }
 
         int posX = minCol;
@@ -100,7 +119,7 @@ public class FuzzyMatch {
                 } else if (diag == min) {
                     posX -= 1;
                     posY -= 1;
-                } else { // left === min
+                } else { // left == min
                     posX -= 1;
                 }
             }
@@ -110,7 +129,7 @@ public class FuzzyMatch {
             }
         }
 
-        return minDist;
+        return new FuzzyMatchResult(posX, minCol, minDist);
     }
 
     private static int min3(int a, int b, int c) {

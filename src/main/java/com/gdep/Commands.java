@@ -1,11 +1,10 @@
 package com.gdep;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public class Commands {
     public static class Dirs implements Command {
@@ -20,9 +19,9 @@ public class Commands {
         }
 
         @Override
-        public void run(List<SourceCode> javaCodes, String[] args) {
+        public void run(List<SourceCode> sourceCodes, String[] args) {
             List<String> sourceDirs =
-                    javaCodes.stream().map(x -> x.sourceDirPath()).sorted().toList();
+                    sourceCodes.stream().map(x -> x.sourceDirPath()).sorted().toList();
 
             for (final String dir : sourceDirs) {
                 System.out.println(dir);
@@ -42,10 +41,10 @@ public class Commands {
         }
 
         @Override
-        public void run(List<SourceCode> javaCodes, String[] args) throws IOException {
+        public void run(List<SourceCode> sourceCodes, String[] args) throws IOException {
             List<String> files = new ArrayList<>();
 
-            for (final SourceCode code : javaCodes) {
+            for (final SourceCode code : sourceCodes) {
                 files.addAll(code.sourceFiles());
             }
 
@@ -69,46 +68,39 @@ public class Commands {
         }
 
         @Override
-        public void run(List<SourceCode> javaCodes, String[] args) throws IOException {
+        public void run(List<SourceCode> sourceCodes, String[] args) throws IOException {
             if (args.length <= 0) {
                 throw new GracefulException("pack command needs atleast one argument").withHelp();
             }
 
-            record PathAndScore(String path, int score) {
-                @Override
-                public int hashCode() {
-                    return path.hashCode();
-                }
+            record PathAndScore(String path, int score) {}
 
-                @Override
-                public boolean equals(Object o) {
-                    if (this == o) return true;
-                    if (o == null) return false;
-                    if (o instanceof PathAndScore other) {
-                        return path.equals(other.path()) && score == other.score();
+            List<PathAndScore> pathAndScores = new ArrayList<>();
+
+            for (final SourceCode sc : sourceCodes) {
+                for (final String file : sc.sourceFiles()) {
+                    Path filePath = Path.of(file);
+                    filePath = Path.of(sc.sourceDirPath()).relativize(filePath);
+                    if (filePath.getNameCount() >= 2) {
+                        filePath = filePath.subpath(1, filePath.getNameCount());
                     }
-                    return false;
-                }
-            }
+                    String newFileName = filePath.toString();
 
-            Set<PathAndScore> pathAndScores = new HashSet<>();
-
-            for (final SourceCode jc : javaCodes) {
-                for (final String file : jc.sourceFiles()) {
-                    int score = PackScore.scoreClassNameSimilarity(file, args[0]);
+                    int score = PackScore.scoreClassNameSimilarity(newFileName, args[0]);
 
                     pathAndScores.add(new PathAndScore(file, score));
                 }
             }
 
-            List<String> candidates = pathAndScores.stream()
-                    .sorted((a, b) -> b.score() - a.score())
+            List<PathAndScore> candidates = pathAndScores.stream()
+                    .sorted(Comparator.comparingInt(PathAndScore::score)
+                            .reversed()
+                            .thenComparing(PathAndScore::path))
                     .limit(5)
-                    .map(x -> x.path())
                     .toList();
 
-            for (final String candidate : candidates) {
-                System.out.println(candidate);
+            for (final PathAndScore candidate : candidates) {
+                System.out.println(candidate.path());
             }
         }
     }
