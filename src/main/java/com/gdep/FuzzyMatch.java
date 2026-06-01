@@ -1,17 +1,33 @@
 package com.gdep;
 
+import java.util.Arrays;
+
 public class FuzzyMatch {
     private static class Matrix {
-        public int width;
-        public int height;
+        public int width = 0;
+        public int height = 0;
 
         public int[] values;
 
-        public Matrix(int width, int height) {
+        public Matrix(int initCapacity) {
+            this.values = new int[initCapacity];
+        }
+
+        public void prepareForUse(int width, int height) {
             this.width = width;
             this.height = height;
 
-            this.values = new int[width * height];
+            if (this.values.length < width * height) {
+                int newCapacity = 2;
+
+                while (newCapacity < width * height) {
+                    newCapacity *= 2;
+                }
+                this.values = new int[newCapacity];
+            } else {
+                // fill memory with zero
+                Arrays.fill(this.values, 0);
+            }
         }
 
         public void setValue(int x, int y, int to) {
@@ -22,6 +38,8 @@ public class FuzzyMatch {
             return values[x + y * this.width];
         }
     }
+
+    public static final ThreadLocal<Matrix> matrixHolder = new ThreadLocal<>();
 
     public static record FuzzyMatchResult(
             int begin, // where the sub string begins in str
@@ -54,7 +72,13 @@ public class FuzzyMatch {
         final int width = str.length() + 1;
         final int height = sub.length() + 1;
 
-        Matrix matrix = new Matrix(width, height);
+        Matrix matrix = matrixHolder.get();
+        if (matrix == null) {
+            matrix = new Matrix(512);
+            matrixHolder.set(matrix);
+        }
+
+        matrix.prepareForUse(width, height);
 
         for (int y = 1; y < height; y++) {
             matrix.setValue(0, y, y);

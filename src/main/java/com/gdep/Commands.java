@@ -78,9 +78,11 @@ public class Commands {
             List<PathAndScore> pathAndScores = new ArrayList<>();
 
             for (final SourceCode sc : sourceCodes) {
+                Path sourceDirPath = Path.of(sc.sourceDirPath());
+
                 for (final String file : sc.sourceFiles()) {
                     Path filePath = Path.of(file);
-                    filePath = Path.of(sc.sourceDirPath()).relativize(filePath);
+                    filePath = sourceDirPath.relativize(filePath);
                     if (filePath.getNameCount() >= 2) {
                         filePath = filePath.subpath(1, filePath.getNameCount());
                     }
