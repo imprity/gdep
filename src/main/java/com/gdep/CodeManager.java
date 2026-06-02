@@ -13,20 +13,34 @@ import java.util.Set;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.DomainObjectSet;
+import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
+import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class ExternalCodeManager {
+public class CodeManager {
     private final String cwd;
     private final String cacheDir;
 
     private final Gson gson;
 
+    static final Logger logger = LoggerFactory.getLogger(CodeManager.class);
+
+    // ============================
+    // SourceCode implementations
+    // ============================
+
     private static record ExternalSourceCode(
             String sourceDirPath, List<String> sourceFiles, String sourceJarPath, String sourceJarHash)
             implements SourceCode {}
 
-    public ExternalCodeManager(String cwd, String cacheDir) {
+    private static record ProjectSourceCode(String sourceDirPath, List<String> sourceFiles) implements SourceCode {}
+
+    // ============================
+
+    public CodeManager(String cwd, String cacheDir) {
         this.cwd = cwd;
         this.cacheDir = cacheDir;
 
@@ -34,41 +48,80 @@ public class ExternalCodeManager {
     }
 
     public List<SourceCode> getExternalSourceCodes() throws IOException {
-        // collect source jar paths from gradle
-        Set<String> sourceJarPaths = new HashSet<>();
+        Set<String> externSourceJarPaths = new HashSet<>();
+
+        String jdkPath = null;
+
+        Set<String> projectSourceDirs = new HashSet<>();
 
         try (ProjectConnection connection = GradleConnector.newConnector()
                 .forProjectDirectory(new File(cwd))
                 .connect()) {
 
             EclipseProject project = connection.getModel(EclipseProject.class);
+
+            // get external source jar paths
             Set<EclipseExternalDependency> deps = getProjectDependencies(project);
-
             for (final EclipseExternalDependency dep : deps) {
-                File classFile = dep.getFile();
                 File sourceFile = dep.getSource();
-                File javaDocFile = dep.getJavadoc();
-
-                // System.out.println(classFile);
-                // System.out.println(sourceFile);
-                // System.out.println(javaDocFile);
 
                 if (sourceFile != null) {
-                    sourceJarPaths.add(sourceFile.getCanonicalPath());
+                    externSourceJarPaths.add(sourceFile.getCanonicalPath());
                 }
+            }
+
+            // try to get jdk path
+            // this is technically wrong since each project could have
+            // different jdk versions
+            //
+            // but I don't think it'd matter too much
+            //
+            // but the correct thing would be to collect java home for every projects
+            try {
+                var javaSettings = project.getJavaSourceSettings();
+                if (javaSettings != null) {
+                    jdkPath = javaSettings.getJdk().getJavaHome().getPath();
+                }
+            } catch (UnsupportedMethodException e) {
+                logger.error("failed to get jdk path", e);
+            }
+
+            // get project source directories
+            // TODO: implement include and exclude patterns if you can
+            Set<EclipseSourceDirectory> srcDirs = getProjectSourceDirs(project);
+            for (final EclipseSourceDirectory dir : srcDirs) {
+                projectSourceDirs.add(Path.of(dir.getPath()).toAbsolutePath().toString());
             }
         }
 
         List<SourceCode> sourceCodes = new ArrayList<SourceCode>();
 
-        for (final String jarPath : sourceJarPaths) {
-            sourceCodes.add(getSourceCode(jarPath));
+        // get SourceCode from externSourceJarPaths
+        for (final String jarPath : externSourceJarPaths) {
+            sourceCodes.add(getSourceCodeFromJar(jarPath));
+        }
+
+        // get SourceCode from jdk (if it exists)
+        if (jdkPath != null) {
+            Path jdkZipPath = Path.of(jdkPath, "lib", "src.zip");
+            try {
+                sourceCodes.add(getSourceCodeFromJar(jdkZipPath.toString()));
+            } catch (Exception e) {
+                logger.error("failed to get jdk sources from {}", jdkZipPath, e);
+            }
+        }
+
+        // get SourceCode from projectSourceDirs
+        for (final String srcDir : projectSourceDirs) {
+            List<String> files = Util.getFilesInDirectory(srcDir);
+
+            sourceCodes.add(new ProjectSourceCode(srcDir, files));
         }
 
         return sourceCodes;
     }
 
-    private SourceCode getSourceCode(String sourceJarPath) throws IOException {
+    private SourceCode getSourceCodeFromJar(String sourceJarPath) throws IOException {
         // first get hash of the jar
         String sourceJarHash = Util.hashFileToString(sourceJarPath);
 
@@ -83,7 +136,7 @@ public class ExternalCodeManager {
             sourceCode = gson.fromJson(jsonString, ExternalSourceCode.class);
         } else {
             // if it doesn't exist in cache, create a cache
-            String sourceDirPath = getSourceDirPath(sourceJarPath, sourceJarHash);
+            String sourceDirPath = getSourceCacheDirPath(sourceJarPath, sourceJarHash);
 
             Util.extractZip(sourceJarPath, sourceDirPath);
 
@@ -99,11 +152,13 @@ public class ExternalCodeManager {
         return sourceCode;
     }
 
-    private String getSourceDirPath(String sourceJarPath, String sourceJarHash) {
+    private String getSourceCacheDirPath(String sourceJarPath, String sourceJarHash) {
         if (sourceJarPath.endsWith("-sources.jar")) {
             sourceJarPath = sourceJarPath.substring(0, sourceJarPath.length() - "-sources.jar".length());
         } else if (sourceJarPath.endsWith(".jar")) {
             sourceJarPath = sourceJarPath.substring(0, sourceJarPath.length() - ".jar".length());
+        } else if (sourceJarPath.endsWith(".zip")) {
+            sourceJarPath = sourceJarPath.substring(0, sourceJarPath.length() - ".zip".length());
         }
 
         String fileName = Path.of(sourceJarPath).getFileName().toString();
@@ -135,6 +190,25 @@ public class ExternalCodeManager {
 
         for (final EclipseProject child : children) {
             getProjectDependenciesImpl(deps, child);
+        }
+    }
+
+    private static Set<EclipseSourceDirectory> getProjectSourceDirs(EclipseProject project) {
+        Set<EclipseSourceDirectory> deps = new HashSet<>();
+        getProjectSourceDirsImpl(deps, project);
+
+        return deps;
+    }
+
+    private static void getProjectSourceDirsImpl(Set<EclipseSourceDirectory> deps, EclipseProject project) {
+        DomainObjectSet<? extends EclipseSourceDirectory> srcDirs = project.getSourceDirectories();
+
+        deps.addAll(srcDirs);
+
+        DomainObjectSet<? extends EclipseProject> children = project.getChildren();
+
+        for (final EclipseProject child : children) {
+            getProjectSourceDirsImpl(deps, child);
         }
     }
 }

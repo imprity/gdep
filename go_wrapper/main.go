@@ -62,12 +62,14 @@ func main() {
 	javaExe := filepath.Join(*settings.JavaHome, "bin", "java")
 
 	gdepJarPath := filepath.Join(execDir, "gdep.jar")
+	logFilePath := filepath.Join(execDir, "gdep-log.txt")
 
 	var args []string
 
 	args = append(
 		args,
 		fmt.Sprintf("-Dgdep.internal.cache.dir=%s", *settings.CacheDir),
+		fmt.Sprintf("-Dorg.slf4j.simpleLogger.logFile=%s", logFilePath),
 		"-jar",
 		gdepJarPath,
 	)

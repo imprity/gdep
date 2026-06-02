@@ -47,8 +47,8 @@ public class App {
         }
 
         try {
-            ExternalCodeManager externalCodeManager = new ExternalCodeManager(cwd, cacheDir);
-            List<SourceCode> sourceCodes = externalCodeManager.getExternalSourceCodes();
+            CodeManager codeManager = new CodeManager(cwd, cacheDir);
+            List<SourceCode> sourceCodes = codeManager.getExternalSourceCodes();
 
             toRun.run(sourceCodes, Arrays.copyOfRange(args, 1, args.length));
         } catch (GracefulException e) {
