@@ -1,15 +1,23 @@
 package com.gdep;
 
 import java.io.PrintStream;
-import java.nio.file.Path;
 import java.util.*;
 
 public class App {
     public static void main(String[] args) {
         final String cwd = System.getProperty("user.dir");
-        final String cacheDir = Path.of(cwd, "cache").toString();
+        final String cacheDir = System.getProperty("gdep.internal.cache.dir");
 
         List<Command> commands = List.of(new Commands.Dirs(), new Commands.Files(), new Commands.Pack());
+
+        if (cacheDir == null) {
+            System.err.println("gdep.internal.cache.dir is not set.");
+            System.err.println("if you are using raw gdep.jar, pass gdep.internal.cache.dir with this command");
+            System.err.println("java -Dgdep.internal.cache.dir=/cache/dir/you/want");
+            System.err.println("");
+            printHelp(System.err, commands);
+            System.exit(1);
+        }
 
         // if no arguments were given, just print help and exit
         if (args.length == 0) {

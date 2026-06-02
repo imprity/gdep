@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -62,7 +63,24 @@ func main() {
 
 	gdepJarPath := filepath.Join(execDir, "gdep.jar")
 
-	cmd := exec.Command(javaExe, "-jar", gdepJarPath)
+	var args []string
+
+	args = append(
+		args,
+		fmt.Sprintf("-Dgdep.internal.cache.dir=%s", *settings.CacheDir),
+		"-jar",
+		gdepJarPath,
+	)
+
+	args = append(
+		args,
+		os.Args[1:]...,
+	)
+
+	cmd := exec.Command(
+		javaExe,
+		args...,
+	)
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
