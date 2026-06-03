@@ -7,7 +7,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +14,6 @@ import java.nio.file.PathMatcher;
 import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -219,7 +217,12 @@ public class CodeManager {
 
         String jsonString = gson.toJson(cachedInfo);
 
-        Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        Files.writeString(
+                jsonCachePath,
+                jsonString,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
 
         return info;
     }
@@ -255,19 +258,8 @@ public class CodeManager {
         return Path.of(this.cacheDir, fileName).toString();
     }
 
-    private String getJsonToolingAPICachePath(String projectDirectoryPath) {
-        MessageDigest digest = null;
-
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-
-        digest.update(projectDirectoryPath.getBytes(StandardCharsets.UTF_8));
-        String hash = HexFormat.of().formatHex(digest.digest());
-
-        String fileName = hash + ".api-cache.json";
+    private String getJsonToolingAPICachePath(String fingerPrintHash) {
+        String fileName = fingerPrintHash + ".api-cache.json";
 
         return Path.of(this.cacheDir, fileName).toString();
     }
