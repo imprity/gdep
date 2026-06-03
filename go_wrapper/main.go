@@ -93,4 +93,6 @@ func main() {
 	if err != nil && !errors.As(err, &exitError) {
 		ErrLogger.Fatalf("failed to execute \"%s\": %v", cmd.String(), err)
 	}
+
+	os.Exit(cmd.ProcessState.ExitCode())
 }

@@ -4,7 +4,7 @@ pushd "%~dp0"
 
 set exitcode=0
 
-call gradlew build -x spotlessJavaCheck
+call gradlew build -x spotlessJavaCheck --rerun-tasks
 
 if %errorlevel% neq 0 (
 	set exitcode=1

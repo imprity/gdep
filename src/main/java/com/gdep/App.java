@@ -5,6 +5,11 @@ import java.util.*;
 
 public class App {
     public static void main(String[] args) {
+        int exitCode = run(args);
+        System.exit(exitCode);
+    }
+
+    private static int run(String[] args) {
         final String cwd = System.getProperty("user.dir");
         final String cacheDir = System.getProperty("gdep.internal.cache.dir");
 
@@ -16,19 +21,19 @@ public class App {
             System.err.println("java -Dgdep.internal.cache.dir=/cache/dir/you/want");
             System.err.println("");
             printHelp(System.err, commands);
-            System.exit(1);
+            return 1;
         }
 
         // if no arguments were given, just print help and exit
         if (args.length == 0) {
             printHelp(System.err, commands);
-            System.exit(1);
+            return 1;
         }
 
         // if the fist argument is help, just print help and exit
         if (args.length >= 1 && args[0].equals("help")) {
             printHelp(System.out, commands);
-            System.exit(0);
+            return 0;
         }
 
         Command toRun = null;
@@ -43,7 +48,7 @@ public class App {
             System.err.println("Unknown command: " + args[0]);
             System.err.println("");
             printHelp(System.err, commands);
-            System.exit(1);
+            return 1;
         }
 
         try {
@@ -57,11 +62,13 @@ public class App {
                 System.err.println("");
                 printHelp(System.err, commands);
             }
-            System.exit(1);
+            return 1;
         } catch (Exception e) {
             e.printStackTrace();
-            System.exit(1);
+            return 1;
         }
+
+        return 0;
     }
 
     private static void printHelp(PrintStream out, List<Command> commands) {

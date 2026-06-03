@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +24,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.gradle.internal.impldep.org.jspecify.annotations.Nullable;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.DomainObjectSet;
@@ -60,7 +62,9 @@ public class CodeManager {
     // ============================
 
     private static record GradleToolingInfo(
-            Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {}
+            Set<String> externalSourceJars,
+            Set<String> projectSourceDirectories,
+            @Nullable String jdkPath) {}
 
     private static record CachedGradleToolingInfo(
             GradleToolingInfo gradleToolingInfo,
@@ -232,9 +236,15 @@ public class CodeManager {
             sourceJarPath = sourceJarPath.substring(0, sourceJarPath.length() - ".zip".length());
         }
 
-        String fileName = Path.of(sourceJarPath).getFileName().toString();
+        Path fileNamePath = Path.of(sourceJarPath).getFileName();
 
-        String dirName = fileName + "-" + sourceJarHash;
+        String dirName;
+
+        if (fileNamePath == null) {
+            dirName = "zipped-src-" + sourceJarHash;
+        } else {
+            dirName = fileNamePath.toString() + "-" + sourceJarHash;
+        }
 
         return Path.of(this.cacheDir, dirName).toString();
     }
@@ -254,7 +264,7 @@ public class CodeManager {
             throw new RuntimeException(e);
         }
 
-        digest.update(projectDirectoryPath.getBytes());
+        digest.update(projectDirectoryPath.getBytes(StandardCharsets.UTF_8));
         String hash = HexFormat.of().formatHex(digest.digest());
 
         String fileName = hash + ".api-cache.json";

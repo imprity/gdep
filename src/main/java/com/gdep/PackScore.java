@@ -70,26 +70,6 @@ public class PackScore {
         return sb.toString();
     }
 
-    private static String removeAbbreviation(List<String> parts) {
-        StringBuilder sb = new StringBuilder();
-
-        boolean abbrevEnded = false;
-
-        for (int i = 0; i < parts.size(); i++) {
-            String part = parts.get(i);
-
-            if (part.length() > 1) {
-                abbrevEnded = true;
-            }
-
-            if (abbrevEnded) {
-                sb.append(part);
-            }
-        }
-
-        return sb.toString();
-    }
-
     private static String removeLogNoise(List<String> classNameParts) {
         StringBuilder sb = new StringBuilder();
 

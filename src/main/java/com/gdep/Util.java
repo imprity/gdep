@@ -77,7 +77,10 @@ public class Util {
                 if (entry.isDirectory()) {
                     Files.createDirectories(entryPath);
                 } else {
-                    Files.createDirectories(entryPath.getParent());
+                    Path entryParent = entryPath.getParent();
+                    if (entryParent != null) {
+                        Files.createDirectories(entryParent);
+                    }
 
                     try (var outStream = new BufferedOutputStream(Files.newOutputStream(
                             entryPath,
@@ -105,8 +108,7 @@ public class Util {
     public static byte[] hashFile(String src) throws IOException {
         MessageDigest digest = getSha256Digest();
 
-        try (var in = new BufferedInputStream(new FileInputStream(src))) {
-            DigestInputStream dis = new DigestInputStream(in, digest);
+        try (var dis = new DigestInputStream(new BufferedInputStream(new FileInputStream(src)), digest)) {
             dis.transferTo(OutputStream.nullOutputStream());
 
             return digest.digest();

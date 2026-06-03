@@ -4,16 +4,17 @@ import java.util.Arrays;
 
 public class FuzzyMatch {
     private static class Matrix {
-        public int width = 0;
-        public int height = 0;
+        int width = 0;
 
-        public int[] values;
+        int height = 0;
 
-        public Matrix(int initCapacity) {
+        int[] values;
+
+        Matrix(int initCapacity) {
             this.values = new int[initCapacity];
         }
 
-        public void prepareForUse(int width, int height) {
+        void prepareForUse(int width, int height) {
             this.width = width;
             this.height = height;
 
@@ -30,12 +31,24 @@ public class FuzzyMatch {
             }
         }
 
-        public void setValue(int x, int y, int to) {
+        void setValue(int x, int y, int to) {
+            throwIfOutOfBound(x, y);
             values[x + y * this.width] = to;
         }
 
-        public int getValue(int x, int y) {
+        int getValue(int x, int y) {
+            throwIfOutOfBound(x, y);
             return values[x + y * this.width];
+        }
+
+        void throwIfOutOfBound(int x, int y) {
+            if (!(0 <= x && x < this.width)) {
+                throw new IllegalArgumentException("x %s is out of bound %s".formatted(x, this.width));
+            }
+
+            if (!(0 <= y && y < this.height)) {
+                throw new IllegalArgumentException("y %s is out of bound %s".formatted(y, this.height));
+            }
         }
     }
 
