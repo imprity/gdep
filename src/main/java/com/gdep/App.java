@@ -69,7 +69,7 @@ public class App {
         out.println("");
         out.println("usage:");
         out.println("");
-        out.println("help : prints this meesage");
+        out.println("help : prints this message");
         for (final Command c : commands) {
             out.println(c.getName() + " : " + c.getDescription());
         }

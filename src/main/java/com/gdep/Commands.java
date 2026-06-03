@@ -64,7 +64,7 @@ public class Commands {
 
         @Override
         public String getDescription() {
-            return "search file using class path. e.g. gdep pack o.s.w.s.DispatcherServlet";
+            return "search files using class path. e.g. gdep pack o.s.w.s.DispatcherServlet";
         }
 
         @Override
