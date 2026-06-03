@@ -37,7 +37,7 @@ dependencies {
 // Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -58,8 +58,6 @@ nullaway {
 
 // java compile settings
 tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("-XDaddTypeAnnotationsToSymbol=true")
-
     options.errorprone  {
 		error("RequireExplicitNullMarking") 
         error("NullAway")
@@ -69,6 +67,8 @@ tasks.withType<JavaCompile>().configureEach {
 	}
 
     options.errorprone.disableWarningsInGeneratedCode = true
+
+    options.release = 17
 }
 
 spotbugs {

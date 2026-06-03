@@ -8,7 +8,7 @@ It does so by unzipping external library source jar files Gradle Tooling API tel
 
 # Building
 
-You need JDK 21 and Go compiler version 1.24.2 (though go compiler version might not matter too much).
+You need JDK 25 and Go compiler version 1.24.2 (though Go compiler version might not matter too much).
 
 Do
 
@@ -20,7 +20,11 @@ and you'll see `out` folder with `gdep.exe`.
 
 And if you are wondering why we use Go compiler, it's because we use it as a thin launcher that basically does `java -jar gdep.jar`.
 
+And JDK is 25 solely because of Nullaway's Jspecify support. Check out [here.](https://github.com/uber/NullAway/wiki/JSpecify-Support#supported-jdk-versions)
+
 # Running
+
+For running, you need JRE 17 or higher.
 
 Simply do
 ``` cmd
