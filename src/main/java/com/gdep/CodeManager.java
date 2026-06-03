@@ -1,6 +1,7 @@
 package com.gdep;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -71,7 +72,7 @@ public class CodeManager {
         this.cwd = cwd;
         this.cacheDir = cacheDir;
 
-        this.gson = new Gson();
+        this.gson = new GsonBuilder().setPrettyPrinting().create();
     }
 
     // ============================
