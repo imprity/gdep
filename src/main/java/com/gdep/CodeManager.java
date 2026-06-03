@@ -1,15 +1,27 @@
 package com.gdep;
 
 import com.google.gson.Gson;
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.StandardOpenOption;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.DomainObjectSet;
@@ -28,6 +40,8 @@ public class CodeManager {
 
     static final Logger logger = LoggerFactory.getLogger(CodeManager.class);
 
+    static final Duration TOOLING_API_CACHE_TTL = Duration.ofHours(3);
+
     // ============================
     // SourceCode implementations
     // ============================
@@ -40,6 +54,19 @@ public class CodeManager {
 
     // ============================
 
+    // ============================
+    // Gradle Tooling outputs
+    // ============================
+
+    private static record GradleToolingInfo(
+            Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {}
+
+    private static record CachedGradleToolingInfo(
+            GradleToolingInfo gradleToolingInfo,
+            Set<String> fingerPrintFiles,
+            String fingerPrintHash,
+            Instant expiresAt) {}
+
     public CodeManager(String cwd, String cacheDir) {
         this.cwd = cwd;
         this.cacheDir = cacheDir;
@@ -47,7 +74,92 @@ public class CodeManager {
         this.gson = new Gson();
     }
 
+    // ============================
+
     public List<SourceCode> getExternalSourceCodes() throws IOException {
+        GradleToolingInfo info = getGradleToolingInfo();
+
+        List<SourceCode> sourceCodes = new ArrayList<SourceCode>();
+
+        // get SourceCode from externSourceJarPaths
+        for (final String jarPath : info.externalSourceJars()) {
+            sourceCodes.add(getSourceCodeFromJar(jarPath));
+        }
+
+        // get SourceCode from jdk (if it exists)
+        if (info.jdkPath() != null) {
+            Path jdkZipPath = Path.of(info.jdkPath(), "lib", "src.zip");
+            try {
+                sourceCodes.add(getSourceCodeFromJar(jdkZipPath.toString()));
+            } catch (Exception e) {
+                logger.error("failed to get jdk sources from {}", jdkZipPath, e);
+            }
+        }
+
+        // get SourceCode from projectSourceDirs
+        for (final String srcDir : info.projectSourceDirectories()) {
+            List<String> files = Util.getFilesInDirectory(srcDir);
+
+            sourceCodes.add(new ProjectSourceCode(srcDir, files));
+        }
+
+        return sourceCodes;
+    }
+
+    private SourceCode getSourceCodeFromJar(String sourceJarPath) throws IOException {
+        // first get hash of the jar
+        String sourceJarHash = Util.hashFileToString(sourceJarPath);
+
+        // check cache
+        Path jsonCachePath = Path.of(getJsonJarCachePath(sourceJarHash));
+
+        ExternalSourceCode sourceCode;
+
+        if (Files.exists(jsonCachePath) && Files.isRegularFile(jsonCachePath)) {
+            // if cache exists, we just parse json cache
+            String jsonString = Files.readString(jsonCachePath);
+            sourceCode = gson.fromJson(jsonString, ExternalSourceCode.class);
+        } else {
+            // if it doesn't exist in cache, create a cache
+            String sourceDirPath = getUnzippedSourceDirPath(sourceJarPath, sourceJarHash);
+
+            Util.extractZip(sourceJarPath, sourceDirPath);
+
+            List<String> sourceFiles = Util.getFilesInDirectory(sourceDirPath);
+
+            sourceCode = new ExternalSourceCode(sourceDirPath, sourceFiles, sourceJarPath, sourceJarHash);
+
+            String jsonString = gson.toJson(sourceCode);
+
+            Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        }
+
+        return sourceCode;
+    }
+
+    private GradleToolingInfo getGradleToolingInfo() throws IOException {
+        // first collect fingerprint hash
+        Set<String> fingerPrintFiles = getFingerPrintFiles();
+
+        String hash = getGradleFingerPrintHash(fingerPrintFiles);
+
+        // check cache
+        Path jsonCachePath = Path.of(getJsonToolingAPICachePath(hash));
+
+        try {
+            if (Files.exists(jsonCachePath) && Files.isRegularFile(jsonCachePath)) {
+                String jsonString = Files.readString(jsonCachePath);
+                CachedGradleToolingInfo cachedInfo = gson.fromJson(jsonString, CachedGradleToolingInfo.class);
+
+                // only if fingerPrintHash matches and the cache is not expired yet
+                if (cachedInfo.fingerPrintHash().equals(hash) && Instant.now().isBefore(cachedInfo.expiresAt())) {
+                    return cachedInfo.gradleToolingInfo();
+                }
+            }
+        } catch (Exception e) {
+            logger.error("could not load cache from {}", jsonCachePath, e);
+        }
+
         Set<String> externSourceJarPaths = new HashSet<>();
 
         String jdkPath = null;
@@ -94,65 +206,23 @@ public class CodeManager {
             }
         }
 
-        List<SourceCode> sourceCodes = new ArrayList<SourceCode>();
+        GradleToolingInfo info = new GradleToolingInfo(externSourceJarPaths, projectSourceDirs, jdkPath);
 
-        // get SourceCode from externSourceJarPaths
-        for (final String jarPath : externSourceJarPaths) {
-            sourceCodes.add(getSourceCodeFromJar(jarPath));
-        }
+        Instant expiresAt = Instant.now().plus(TOOLING_API_CACHE_TTL);
 
-        // get SourceCode from jdk (if it exists)
-        if (jdkPath != null) {
-            Path jdkZipPath = Path.of(jdkPath, "lib", "src.zip");
-            try {
-                sourceCodes.add(getSourceCodeFromJar(jdkZipPath.toString()));
-            } catch (Exception e) {
-                logger.error("failed to get jdk sources from {}", jdkZipPath, e);
-            }
-        }
+        CachedGradleToolingInfo cachedInfo = new CachedGradleToolingInfo(info, fingerPrintFiles, hash, expiresAt);
 
-        // get SourceCode from projectSourceDirs
-        for (final String srcDir : projectSourceDirs) {
-            List<String> files = Util.getFilesInDirectory(srcDir);
+        String jsonString = gson.toJson(cachedInfo);
 
-            sourceCodes.add(new ProjectSourceCode(srcDir, files));
-        }
+        Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
 
-        return sourceCodes;
+        return info;
     }
 
-    private SourceCode getSourceCodeFromJar(String sourceJarPath) throws IOException {
-        // first get hash of the jar
-        String sourceJarHash = Util.hashFileToString(sourceJarPath);
-
-        // check cache
-        Path jsonCachePath = Path.of(getJsonCachePath(sourceJarHash));
-
-        ExternalSourceCode sourceCode;
-
-        if (Files.exists(jsonCachePath) && Files.isRegularFile(jsonCachePath)) {
-            // if cache exists, we just parse json cache
-            String jsonString = Files.readString(jsonCachePath);
-            sourceCode = gson.fromJson(jsonString, ExternalSourceCode.class);
-        } else {
-            // if it doesn't exist in cache, create a cache
-            String sourceDirPath = getSourceCacheDirPath(sourceJarPath, sourceJarHash);
-
-            Util.extractZip(sourceJarPath, sourceDirPath);
-
-            List<String> sourceFiles = Util.getFilesInDirectory(sourceDirPath);
-
-            sourceCode = new ExternalSourceCode(sourceDirPath, sourceFiles, sourceJarPath, sourceJarHash);
-
-            String jsonString = gson.toJson(sourceCode);
-
-            Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-        }
-
-        return sourceCode;
-    }
-
-    private String getSourceCacheDirPath(String sourceJarPath, String sourceJarHash) {
+    // ============================
+    // helper fucntions
+    // ============================
+    private String getUnzippedSourceDirPath(String sourceJarPath, String sourceJarHash) {
         if (sourceJarPath.endsWith("-sources.jar")) {
             sourceJarPath = sourceJarPath.substring(0, sourceJarPath.length() - "-sources.jar".length());
         } else if (sourceJarPath.endsWith(".jar")) {
@@ -168,8 +238,25 @@ public class CodeManager {
         return Path.of(this.cacheDir, dirName).toString();
     }
 
-    private String getJsonCachePath(String sourceJarHash) {
-        String fileName = sourceJarHash + ".data.json";
+    private String getJsonJarCachePath(String sourceJarHash) {
+        String fileName = sourceJarHash + ".jar-cache.json";
+
+        return Path.of(this.cacheDir, fileName).toString();
+    }
+
+    private String getJsonToolingAPICachePath(String projectDirectoryPath) {
+        MessageDigest digest = null;
+
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+
+        digest.update(projectDirectoryPath.getBytes());
+        String hash = HexFormat.of().formatHex(digest.digest());
+
+        String fileName = hash + ".api-cache.json";
 
         return Path.of(this.cacheDir, fileName).toString();
     }
@@ -210,5 +297,55 @@ public class CodeManager {
         for (final EclipseProject child : children) {
             getProjectSourceDirsImpl(deps, child);
         }
+    }
+
+    private String getGradleFingerPrintHash(Set<String> fingerPrintFiles) throws IOException {
+        // sort the files
+        List<String> sortedFiles = fingerPrintFiles.stream().sorted().toList();
+
+        MessageDigest digest = Util.getSha256Digest();
+
+        for (String file : sortedFiles) {
+            try (var dis = new DigestInputStream(new BufferedInputStream(new FileInputStream(file)), digest)) {
+                dis.transferTo(OutputStream.nullOutputStream());
+            } catch (Exception e) {
+                logger.error("failed open file \"{}\" to caculcate finger printing hash", file, e);
+            }
+        }
+
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    // list is copy pasted from
+    // https://github.com/gradle/actions/blob/main/sources/src/cache-service-basic.ts
+    private static Set<String> fingerPrintFilePatterns = Set.of(
+            "glob:**/*.gradle*",
+            "glob:**/gradle-wrapper.properties",
+            "glob:buildSrc/**/Versions.kt",
+            "glob:buildSrc/**/Dependencies.kt",
+            "glob:gradle/*.versions.toml",
+            "glob:**/versions.properties");
+
+    private Set<String> getFingerPrintFiles() throws IOException {
+        List<PathMatcher> matchers = fingerPrintFilePatterns.stream()
+                .map(x -> FileSystems.getDefault().getPathMatcher(x))
+                .toList();
+
+        Set<String> toReturn = new HashSet<>();
+
+        try (Stream<Path> direntStream = Files.walk(Path.of(cwd))) {
+            List<Path> dirents = direntStream.filter(Files::isRegularFile).toList();
+
+            for (final Path dirent : dirents) {
+                for (PathMatcher matcher : matchers) {
+                    if (matcher.matches(dirent)) {
+                        toReturn.add(dirent.toAbsolutePath().toString());
+                        break;
+                    }
+                }
+            }
+        }
+
+        return toReturn;
     }
 }

@@ -103,13 +103,7 @@ public class Util {
     }
 
     public static byte[] hashFile(String src) throws IOException {
-        MessageDigest digest = null;
-
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
+        MessageDigest digest = getSha256Digest();
 
         try (var in = new BufferedInputStream(new FileInputStream(src))) {
             DigestInputStream dis = new DigestInputStream(in, digest);
@@ -121,5 +115,17 @@ public class Util {
 
     public static String hashFileToString(String src) throws IOException {
         return HexFormat.of().formatHex(hashFile(src));
+    }
+
+    public static MessageDigest getSha256Digest() {
+        MessageDigest digest = null;
+
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+
+        return digest;
     }
 }
