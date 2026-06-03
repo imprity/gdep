@@ -64,6 +64,8 @@ public class Util {
 
     // TODO: make it return file entires as well
     public static void extractZip(String src, String dst) throws IOException {
+        Path dstPath = Path.of(dst).toAbsolutePath().normalize();
+
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(src)))) {
             ZipEntry entry = zis.getNextEntry();
 
@@ -73,6 +75,10 @@ public class Util {
             while (entry != null) {
                 String name = entry.getName();
                 Path entryPath = Path.of(dst, name);
+
+                if (!entryPath.toAbsolutePath().normalize().startsWith(dstPath)) {
+                    throw new IOException("zip slip attack detected!: " + name);
+                }
 
                 if (entry.isDirectory()) {
                     Files.createDirectories(entryPath);
