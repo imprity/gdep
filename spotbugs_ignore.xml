@@ -1,0 +1,6 @@
+<FindBugsFilter>
+     <!-- ignore files that has $ name in it -->
+     <Match>
+          <Source name="~.*\$.*"/>
+     </Match>
+</FindBugsFilter>

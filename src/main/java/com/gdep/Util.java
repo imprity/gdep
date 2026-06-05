@@ -55,7 +55,7 @@ public class Util {
     public static List<String> getFilesInDirectory(String dir) throws IOException {
         try (Stream<Path> dirents = Files.walk(Path.of(dir))) {
             return dirents.filter(Files::isRegularFile)
-                    .map(Path::toAbsolutePath)
+                    .map(Util::cleanPath)
                     .map(Path::toString)
                     .distinct()
                     .toList();
@@ -64,7 +64,7 @@ public class Util {
 
     // TODO: make it return file entires as well
     public static void extractZip(String src, String dst) throws IOException {
-        Path dstPath = Path.of(dst).toAbsolutePath().normalize();
+        Path dstPath = cleanPath(Path.of(dst));
 
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(src)))) {
             ZipEntry entry = zis.getNextEntry();
@@ -74,9 +74,9 @@ public class Util {
 
             while (entry != null) {
                 String name = entry.getName();
-                Path entryPath = Path.of(dst, name);
+                Path entryPath = cleanPath(Path.of(dst, name));
 
-                if (!entryPath.toAbsolutePath().normalize().startsWith(dstPath)) {
+                if (!entryPath.startsWith(dstPath)) {
                     throw new IOException("zip slip attack detected!: " + name);
                 }
 
@@ -135,5 +135,16 @@ public class Util {
         }
 
         return digest;
+    }
+
+    /**
+     * get normalized absolute path
+     */
+    public static Path cleanPath(Path path) {
+        return path.toAbsolutePath().normalize();
+    }
+
+    public static String cleanPath(String path) {
+        return cleanPath(Path.of(path)).toString();
     }
 }

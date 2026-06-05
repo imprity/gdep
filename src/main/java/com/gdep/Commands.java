@@ -78,18 +78,21 @@ public class Commands {
             List<PathAndScore> pathAndScores = new ArrayList<>();
 
             for (final SourceCode sc : sourceCodes) {
-                Path sourceDirPath = Path.of(sc.sourceDirPath());
-
                 for (final String file : sc.sourceFiles()) {
-                    Path filePath = Path.of(file);
-                    filePath = sourceDirPath.relativize(filePath);
-                    if (filePath.getNameCount() >= 2) {
-                        filePath = filePath.subpath(1, filePath.getNameCount());
+                    String scoreFileName = file;
+
+                    if (scoreFileName.startsWith(sc.sourceDirPath())) {
+                        scoreFileName =
+                                scoreFileName.substring(sc.sourceDirPath().length(), scoreFileName.length());
+                        Path scoreFilePath = Path.of(scoreFileName);
+                        if (scoreFilePath.getNameCount() >= 2) {
+                            scoreFileName = scoreFilePath
+                                    .subpath(1, scoreFilePath.getNameCount())
+                                    .toString();
+                        }
                     }
-                    String newFileName = filePath.toString();
 
-                    int score = PackScore.scoreClassNameSimilarity(newFileName, args[0]);
-
+                    int score = PackScore.scoreClassNameSimilarity(scoreFileName, args[0]);
                     pathAndScores.add(new PathAndScore(file, score));
                 }
             }

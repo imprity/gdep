@@ -63,11 +63,13 @@ func main() {
 
 	gdepJarPath := filepath.Join(execDir, "gdep.jar")
 	logFilePath := filepath.Join(execDir, "gdep-log.txt")
+	aotFile := filepath.Join(execDir, "gdep.aot")
 
 	var args []string
 
 	args = append(
 		args,
+		fmt.Sprintf("-XX:AOTCache=%s", aotFile),
 		fmt.Sprintf("-Dgdep.internal.cache.dir=%s", *settings.CacheDir),
 		fmt.Sprintf("-Dorg.slf4j.simpleLogger.logFile=%s", logFilePath),
 		"-jar",

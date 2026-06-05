@@ -1,8 +1,10 @@
 package com.gdep;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.dslplatform.json.CompiledJson;
+import com.dslplatform.json.DslJson;
+import com.dslplatform.json.runtime.Settings;
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -17,6 +19,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -37,7 +40,9 @@ public class CodeManager {
     private final String cwd;
     private final String cacheDir;
 
-    private final Gson gson;
+    // private final Gson gson;
+    // private final JsonReader jsonReader;
+    private final DslJson<Object> dslJson = new DslJson<>(Settings.withRuntime().includeServiceLoader());
 
     static final Logger logger = LoggerFactory.getLogger(CodeManager.class);
 
@@ -47,9 +52,15 @@ public class CodeManager {
     // SourceCode implementations
     // ============================
 
-    private static record ExternalSourceCode(
+    @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
+    public record ExternalSourceCode(
             String sourceDirPath, List<String> sourceFiles, String sourceJarPath, String sourceJarHash)
-            implements SourceCode {}
+            implements SourceCode {
+
+        public ExternalSourceCode {
+            sourceFiles = Collections.unmodifiableList(sourceFiles);
+        }
+    }
 
     private static record ProjectSourceCode(String sourceDirPath, List<String> sourceFiles) implements SourceCode {}
 
@@ -59,22 +70,34 @@ public class CodeManager {
     // Gradle Tooling outputs
     // ============================
 
-    private static record GradleToolingInfo(
+    public static record GradleToolingInfo(
             Set<String> externalSourceJars,
             Set<String> projectSourceDirectories,
-            @Nullable String jdkPath) {}
+            @Nullable String jdkPath) {
 
-    private static record CachedGradleToolingInfo(
+        public GradleToolingInfo {
+            externalSourceJars = Collections.unmodifiableSet(externalSourceJars);
+            projectSourceDirectories = Collections.unmodifiableSet(projectSourceDirectories);
+        }
+    }
+
+    @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
+    public static record CachedGradleToolingInfo(
             GradleToolingInfo gradleToolingInfo,
             Set<String> fingerPrintFiles,
             String fingerPrintHash,
-            Instant expiresAt) {}
+            Instant expiresAt) {
+
+        public CachedGradleToolingInfo {
+            fingerPrintFiles = Collections.unmodifiableSet(fingerPrintFiles);
+        }
+    }
 
     public CodeManager(String cwd, String cacheDir) {
-        this.cwd = cwd;
-        this.cacheDir = cacheDir;
+        this.cwd = Util.cleanPath(cwd);
+        this.cacheDir = Util.cleanPath(cacheDir);
 
-        this.gson = new GsonBuilder().setPrettyPrinting().create();
+        // this.gson = new GsonBuilder().setPrettyPrinting().create();
     }
 
     // ============================
@@ -120,8 +143,10 @@ public class CodeManager {
 
         if (Files.exists(jsonCachePath) && Files.isRegularFile(jsonCachePath)) {
             // if cache exists, we just parse json cache
-            String jsonString = Files.readString(jsonCachePath);
-            sourceCode = gson.fromJson(jsonString, ExternalSourceCode.class);
+            // String jsonString = Files.readString(jsonCachePath);
+            // sourceCode = gson.fromJson(jsonString, ExternalSourceCode.class);
+            byte[] jsonBytes = Files.readAllBytes(jsonCachePath);
+            sourceCode = dslJson.deserialize(ExternalSourceCode.class, jsonBytes, jsonBytes.length);
         } else {
             // if it doesn't exist in cache, create a cache
             String sourceDirPath = getUnzippedSourceDirPath(sourceJarPath, sourceJarHash);
@@ -132,9 +157,17 @@ public class CodeManager {
 
             sourceCode = new ExternalSourceCode(sourceDirPath, sourceFiles, sourceJarPath, sourceJarHash);
 
-            String jsonString = gson.toJson(sourceCode);
+            // String jsonString = gson.toJson(sourceCode);
+            try (var out = new BufferedOutputStream(
+                    Files.newOutputStream(jsonCachePath, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW))) {
+                dslJson.serialize(sourceCode, out);
+            }
 
-            Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+            // Files.writeString(jsonCachePath, jsonString, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        }
+
+        if (sourceCode == null) {
+            throw new RuntimeException("failed to deserialize sourceCode");
         }
 
         return sourceCode;
@@ -151,8 +184,16 @@ public class CodeManager {
 
         try {
             if (Files.exists(jsonCachePath) && Files.isRegularFile(jsonCachePath)) {
-                String jsonString = Files.readString(jsonCachePath);
-                CachedGradleToolingInfo cachedInfo = gson.fromJson(jsonString, CachedGradleToolingInfo.class);
+                // String jsonString = Files.readString(jsonCachePath);
+                // CachedGradleToolingInfo cachedInfo = gson.fromJson(jsonString, CachedGradleToolingInfo.class);
+
+                byte[] jsonBytes = Files.readAllBytes(jsonCachePath);
+                CachedGradleToolingInfo cachedInfo =
+                        dslJson.deserialize(CachedGradleToolingInfo.class, jsonBytes, jsonBytes.length);
+
+                if (cachedInfo == null) {
+                    throw new RuntimeException("failed to deserialize cachedInfo");
+                }
 
                 // only if fingerPrintHash matches and the cache is not expired yet
                 if (cachedInfo.fingerPrintHash().equals(hash) && Instant.now().isBefore(cachedInfo.expiresAt())) {
@@ -181,7 +222,7 @@ public class CodeManager {
                 File sourceFile = dep.getSource();
 
                 if (sourceFile != null) {
-                    externSourceJarPaths.add(sourceFile.getCanonicalPath());
+                    externSourceJarPaths.add(Util.cleanPath(sourceFile.getCanonicalPath()));
                 }
             }
 
@@ -195,7 +236,7 @@ public class CodeManager {
             try {
                 var javaSettings = project.getJavaSourceSettings();
                 if (javaSettings != null) {
-                    jdkPath = javaSettings.getJdk().getJavaHome().getPath();
+                    jdkPath = Util.cleanPath(javaSettings.getJdk().getJavaHome().getPath());
                 }
             } catch (UnsupportedMethodException e) {
                 logger.error("failed to get jdk path", e);
@@ -205,7 +246,7 @@ public class CodeManager {
             // TODO: implement include and exclude patterns if you can
             Set<EclipseSourceDirectory> srcDirs = getProjectSourceDirs(project);
             for (final EclipseSourceDirectory dir : srcDirs) {
-                projectSourceDirs.add(Path.of(dir.getPath()).toAbsolutePath().toString());
+                projectSourceDirs.add(Util.cleanPath(dir.getPath()));
             }
         }
 
@@ -215,14 +256,13 @@ public class CodeManager {
 
         CachedGradleToolingInfo cachedInfo = new CachedGradleToolingInfo(info, fingerPrintFiles, hash, expiresAt);
 
-        String jsonString = gson.toJson(cachedInfo);
-
-        Files.writeString(
+        try (var out = new BufferedOutputStream(Files.newOutputStream(
                 jsonCachePath,
-                jsonString,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING);
+                StandardOpenOption.TRUNCATE_EXISTING))) {
+            dslJson.serialize(cachedInfo, out);
+        }
 
         return info;
     }
@@ -249,19 +289,19 @@ public class CodeManager {
             dirName = fileNamePath.toString() + "-" + sourceJarHash;
         }
 
-        return Path.of(this.cacheDir, dirName).toString();
+        return Util.cleanPath(Path.of(this.cacheDir, dirName)).toString();
     }
 
     private String getJsonJarCachePath(String sourceJarHash) {
         String fileName = sourceJarHash + ".jar-cache.json";
 
-        return Path.of(this.cacheDir, fileName).toString();
+        return Util.cleanPath(Path.of(this.cacheDir, fileName)).toString();
     }
 
     private String getJsonToolingAPICachePath(String fingerPrintHash) {
         String fileName = fingerPrintHash + ".api-cache.json";
 
-        return Path.of(this.cacheDir, fileName).toString();
+        return Util.cleanPath(Path.of(this.cacheDir, fileName)).toString();
     }
 
     private static Set<EclipseExternalDependency> getProjectDependencies(EclipseProject project) {
@@ -342,7 +382,7 @@ public class CodeManager {
             for (final Path dirent : dirents) {
                 for (PathMatcher matcher : matchers) {
                     if (matcher.matches(dirent)) {
-                        toReturn.add(dirent.toAbsolutePath().toString());
+                        toReturn.add(Util.cleanPath(dirent).toString());
                         break;
                     }
                 }

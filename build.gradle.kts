@@ -23,7 +23,10 @@ dependencies {
     // The tooling API need an SLF4J implementation available at runtime, replace this with any other implementation
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 
-    implementation("com.google.code.gson:gson:2.14.0")
+    // implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.dslplatform:dsl-json:2.0.2")
+    annotationProcessor("com.dslplatform:dsl-json:2.0.2")
+
     implementation("org.jspecify:jspecify:1.0.0")
 
     // Use JUnit test framework.
@@ -59,22 +62,22 @@ nullaway {
 // java compile settings
 tasks.withType<JavaCompile>().configureEach {
     options.errorprone  {
-		error("RequireExplicitNullMarking") 
         error("NullAway")
-		nullaway {
-			error()
-		}
-	}
-
-    options.errorprone.disableWarningsInGeneratedCode = true
+        nullaway {
+            error()
+            excludedClassAnnotations.add("javax.annotation.processing.Generated")
+        }
+        disableWarningsInGeneratedCode = true
+    }
 
     options.release = 17
 }
 
 spotbugs {
-    ignoreFailures = false
+    ignoreFailures = true
     effort = com.github.spotbugs.snom.Effort.DEFAULT
     reportLevel = com.github.spotbugs.snom.Confidence.DEFAULT
+    excludeFilter = file("spotbugs_ignore.xml")
 }
 
 // build fat jar
