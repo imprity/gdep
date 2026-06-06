@@ -1,84 +1,135 @@
 package com.gdep;
 
-import java.io.PrintStream;
+import com.dslplatform.json.CompiledJson;
+import com.dslplatform.json.DslJson;
+import com.dslplatform.json.runtime.Settings;
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
+import org.gradle.tooling.GradleConnector;
+import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.model.DomainObjectSet;
+import org.gradle.tooling.model.UnsupportedMethodException;
+import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
+import org.gradle.tooling.model.eclipse.EclipseProject;
+import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class App {
-    public static void main(String[] args) {
-        int exitCode = run(args);
+    private static final DslJson<Object> dslJson =
+            new DslJson<>(Settings.withRuntime().includeServiceLoader());
+    private static final Logger logger = LoggerFactory.getLogger(App.class);
+
+    @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
+    public static record GradleToolingInfo(
+            Set<String> externalSourceJars,
+            Set<String> projectSourceDirectories,
+            @Nullable String jdkPath) {
+
+        public GradleToolingInfo {
+            externalSourceJars = Collections.unmodifiableSet(externalSourceJars);
+            projectSourceDirectories = Collections.unmodifiableSet(projectSourceDirectories);
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        int exitCode = run();
         System.exit(exitCode);
     }
 
-    private static int run(String[] args) {
+    private static int run() throws IOException {
         final String cwd = System.getProperty("user.dir");
-        final String cacheDir = System.getProperty("gdep.internal.cache.dir");
 
-        List<Command> commands = List.of(new Commands.Dirs(), new Commands.Files(), new Commands.Pack());
+        Set<String> externSourceJarPaths = new HashSet<>();
 
-        if (cacheDir == null) {
-            System.err.println("gdep.internal.cache.dir is not set.");
-            System.err.println("if you are using raw gdep.jar, pass gdep.internal.cache.dir with this command");
-            System.err.println("java -Dgdep.internal.cache.dir=/cache/dir/you/want");
-            System.err.println("");
-            printHelp(System.err, commands);
-            return 1;
-        }
+        String jdkPath = null;
 
-        // if no arguments were given, just print help and exit
-        if (args.length == 0) {
-            printHelp(System.err, commands);
-            return 1;
-        }
+        Set<String> projectSourceDirs = new HashSet<>();
 
-        // if the fist argument is help, just print help and exit
-        if (args.length >= 1 && args[0].equals("help")) {
-            printHelp(System.out, commands);
-            return 0;
-        }
+        try (ProjectConnection connection = GradleConnector.newConnector()
+                .forProjectDirectory(new File(cwd))
+                .connect()) {
 
-        Command toRun = null;
+            EclipseProject project = connection.getModel(EclipseProject.class);
 
-        for (Command command : commands) {
-            if (command.getName().equals(args[0])) {
-                toRun = command;
+            // get external source jar paths
+            Set<EclipseExternalDependency> deps = getProjectDependencies(project);
+            for (final EclipseExternalDependency dep : deps) {
+                File sourceFile = dep.getSource();
+
+                if (sourceFile != null) {
+                    externSourceJarPaths.add(Util.cleanPath(sourceFile.getCanonicalPath()));
+                }
+            }
+
+            // try to get jdk path
+            // this is technically wrong since each project could have
+            // different jdk versions
+            //
+            // but I don't think it'd matter too much
+            //
+            // but the correct thing would be to collect java home for every projects
+            try {
+                var javaSettings = project.getJavaSourceSettings();
+                if (javaSettings != null) {
+                    jdkPath = Util.cleanPath(javaSettings.getJdk().getJavaHome().getPath());
+                }
+            } catch (UnsupportedMethodException e) {
+                logger.error("failed to get jdk path", e);
+            }
+
+            // get project source directories
+            // TODO: implement include and exclude patterns if you can
+            Set<EclipseSourceDirectory> srcDirs = getProjectSourceDirs(project);
+            for (final EclipseSourceDirectory dir : srcDirs) {
+                projectSourceDirs.add(Util.cleanPath(dir.getPath()));
             }
         }
 
-        if (toRun == null) {
-            System.err.println("Unknown command: " + args[0]);
-            System.err.println("");
-            printHelp(System.err, commands);
-            return 1;
-        }
+        GradleToolingInfo info = new GradleToolingInfo(externSourceJarPaths, projectSourceDirs, jdkPath);
 
-        try {
-            CodeManager codeManager = new CodeManager(cwd, cacheDir);
-            List<SourceCode> sourceCodes = codeManager.getExternalSourceCodes();
-
-            toRun.run(sourceCodes, Arrays.copyOfRange(args, 1, args.length));
-        } catch (GracefulException e) {
-            System.err.println(e.getMessage());
-            if (e.shouldPrintHelp()) {
-                System.err.println("");
-                printHelp(System.err, commands);
-            }
-            return 1;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return 1;
-        }
+        dslJson.serialize(info, System.out);
 
         return 0;
     }
 
-    private static void printHelp(PrintStream out, List<Command> commands) {
-        out.println("gdep");
-        out.println("");
-        out.println("usage:");
-        out.println("");
-        out.println("help : prints this message");
-        for (final Command c : commands) {
-            out.println(c.getName() + " : " + c.getDescription());
+    private static Set<EclipseExternalDependency> getProjectDependencies(EclipseProject project) {
+        Set<EclipseExternalDependency> deps = new HashSet<>();
+        getProjectDependenciesImpl(deps, project);
+
+        return deps;
+    }
+
+    private static void getProjectDependenciesImpl(Set<EclipseExternalDependency> deps, EclipseProject project) {
+        DomainObjectSet<? extends EclipseExternalDependency> projectDeps = project.getClasspath();
+
+        deps.addAll(projectDeps);
+
+        DomainObjectSet<? extends EclipseProject> children = project.getChildren();
+
+        for (final EclipseProject child : children) {
+            getProjectDependenciesImpl(deps, child);
+        }
+    }
+
+    private static Set<EclipseSourceDirectory> getProjectSourceDirs(EclipseProject project) {
+        Set<EclipseSourceDirectory> deps = new HashSet<>();
+        getProjectSourceDirsImpl(deps, project);
+
+        return deps;
+    }
+
+    private static void getProjectSourceDirsImpl(Set<EclipseSourceDirectory> deps, EclipseProject project) {
+        DomainObjectSet<? extends EclipseSourceDirectory> srcDirs = project.getSourceDirectories();
+
+        deps.addAll(srcDirs);
+
+        DomainObjectSet<? extends EclipseProject> children = project.getChildren();
+
+        for (final EclipseProject child : children) {
+            getProjectSourceDirsImpl(deps, child);
         }
     }
 }

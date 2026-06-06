@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 )
 
@@ -16,85 +15,105 @@ type Settings struct {
 	CacheDir *string
 }
 
-var ErrLogger = log.New(os.Stderr, "GDEP_GO_WRAPPER_ERROR:", log.Lshortfile)
+var ProgramInfo struct {
+	JavaHome string
+	CacheDir string
+	ExecDir  string
+	Cwd      string
+}
+
+var ErrLogger = log.New(os.Stderr, "ERROR:", log.Lshortfile)
 
 // TODO: maybe check java version
 
 func main() {
-	execPath, err := os.Executable()
-	if err != nil {
-		ErrLogger.Fatalf("could not get executable's path: %v", err)
-	}
+	// ===========================
+	// setting up ProgramInfo
+	// ===========================
 
-	execDir := filepath.Dir(execPath)
-
-	settingsFile := filepath.Join(execDir, "gdep-settings.json")
-
-	var settings *Settings = new(Settings)
-
-	settingsJson, err := os.ReadFile(settingsFile)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			ErrLogger.Fatalf("could not open settings at \"%s\": %v", settingsFile, err)
-		}
-	} else {
-		err := json.Unmarshal(settingsJson, settings)
+	toAbsolute := func(p string) string {
+		abs, err := filepath.Abs(p)
 		if err != nil {
-			ErrLogger.Fatalf("failed to parse \"%s\": %v", settingsFile, err)
+			ErrLogger.Fatalf("failed to get absolute path of %s: %v", p, err)
+		}
+		return abs
+	}
+
+	// Cwd
+	ProgramInfo.Cwd = toAbsolute(os.Args[0])
+
+	// ExecDir
+	{
+		execPath, err := os.Executable()
+		if err != nil {
+			ErrLogger.Fatalf("could not get executable's path: %v", err)
+		}
+		execDir := filepath.Dir(execPath)
+
+		ProgramInfo.ExecDir = toAbsolute(execDir)
+	}
+
+	// JavaHome
+	// CacheDir
+
+	{
+		// load settings
+		var settings Settings
+
+		settingsFile := filepath.Join(ProgramInfo.ExecDir, "gdep-settings.json")
+
+		settingsJson, err := os.ReadFile(settingsFile)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				ErrLogger.Fatalf("could not open settings at \"%s\": %v", settingsFile, err)
+			}
+		} else {
+			err := json.Unmarshal(settingsJson, settings)
+			if err != nil {
+				ErrLogger.Fatalf("failed to parse \"%s\": %v", settingsFile, err)
+			}
+		}
+
+		var javaHome string
+		var cacheDir string
+
+		if settings.JavaHome != nil {
+			javaHome = *settings.JavaHome
+		} else {
+			javaHome = (os.Getenv("JAVA_HOME"))
+		}
+
+		if settings.CacheDir != nil {
+			cacheDir = *settings.CacheDir
+		} else {
+			cacheDir = filepath.Join(ProgramInfo.ExecDir, "gdep-cache")
+		}
+
+		ProgramInfo.JavaHome = toAbsolute(javaHome)
+		ProgramInfo.CacheDir = toAbsolute(cacheDir)
+	}
+
+	// create cache dir
+	{
+		err := os.MkdirAll(ProgramInfo.CacheDir, 0775)
+		if err != nil {
+			ErrLogger.Fatalf("failed to create directory \"%s\": %v", ProgramInfo.CacheDir, err)
 		}
 	}
 
-	if settings.JavaHome == nil {
-		javaHome := (os.Getenv("JAVA_HOME"))
-		settings.JavaHome = &javaHome
-	}
-
-	if settings.CacheDir == nil {
-		cacheDir := filepath.Join(execDir, "gdep-cache")
-		settings.CacheDir = &cacheDir
-	}
-
-	err = os.MkdirAll(*settings.CacheDir, 0775)
+	sourceCodes, err := GetExternalSourceCodes()
 	if err != nil {
-		ErrLogger.Fatalf("failed to create directory \"%s\": %v", *settings.CacheDir, err)
+		ErrLogger.Fatal(err)
 	}
 
-	javaExe := filepath.Join(*settings.JavaHome, "bin", "java")
+	for _, sc := range sourceCodes {
+		fmt.Printf("===================\n")
+		fmt.Printf("GetSourceDirPath : %s\n", sc.GetSourceDirPath())
+		fmt.Printf("SourceFiles :\n")
 
-	gdepJarPath := filepath.Join(execDir, "gdep.jar")
-	logFilePath := filepath.Join(execDir, "gdep-log.txt")
-	aotFile := filepath.Join(execDir, "gdep.aot")
-
-	var args []string
-
-	args = append(
-		args,
-		fmt.Sprintf("-XX:AOTCache=%s", aotFile),
-		fmt.Sprintf("-Dgdep.internal.cache.dir=%s", *settings.CacheDir),
-		fmt.Sprintf("-Dorg.slf4j.simpleLogger.logFile=%s", logFilePath),
-		"-jar",
-		gdepJarPath,
-	)
-
-	args = append(
-		args,
-		os.Args[1:]...,
-	)
-
-	cmd := exec.Command(
-		javaExe,
-		args...,
-	)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
-
-	var exitError *exec.ExitError
-	if err != nil && !errors.As(err, &exitError) {
-		ErrLogger.Fatalf("failed to execute \"%s\": %v", cmd.String(), err)
+		for _, file := range sc.GetSourceFiles() {
+			fmt.Printf("    %s\n", file)
+		}
+		fmt.Printf("===================\n")
 	}
-
-	os.Exit(cmd.ProcessState.ExitCode())
 }

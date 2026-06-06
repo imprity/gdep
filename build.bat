@@ -4,14 +4,14 @@ pushd "%~dp0"
 
 set exitcode=0
 
-call gradlew build -x spotlessJavaCheck --rerun-tasks
+go build -C go_wrapper -o gdep.exe -gcflags="-e"
 
 if %errorlevel% neq 0 (
 	set exitcode=1
 	goto END
 )
 
-go build -C go_wrapper -o gdep.exe
+call gradlew build -x spotlessJavaCheck --rerun-tasks
 
 if %errorlevel% neq 0 (
 	set exitcode=1

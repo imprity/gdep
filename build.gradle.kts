@@ -23,7 +23,6 @@ dependencies {
     // The tooling API need an SLF4J implementation available at runtime, replace this with any other implementation
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 
-    // implementation("com.google.code.gson:gson:2.14.0")
     implementation("com.dslplatform:dsl-json:2.0.2")
     annotationProcessor("com.dslplatform:dsl-json:2.0.2")
 
@@ -35,6 +34,8 @@ dependencies {
     errorprone("com.google.errorprone:error_prone_core:2.42.0") 
     errorprone("com.uber.nullaway:nullaway:0.13.4")
 
+    spotbugsSlf4j("org.slf4j:slf4j-api:2.0.17")
+    spotbugsSlf4j("org.slf4j:slf4j-simple:2.0.17")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
@@ -74,7 +75,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 spotbugs {
-    ignoreFailures = true
+    ignoreFailures = false
     effort = com.github.spotbugs.snom.Effort.DEFAULT
     reportLevel = com.github.spotbugs.snom.Confidence.DEFAULT
     excludeFilter = file("spotbugs_ignore.xml")
