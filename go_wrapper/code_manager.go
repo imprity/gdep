@@ -133,7 +133,10 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 		if err != nil {
 			return nil, err
 		}
-		json.Unmarshal(jsonBytes, &sourceCode)
+		err = json.Unmarshal(jsonBytes, &sourceCode)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		sourceDirPath := GetUnzippedSourceDirPath(sourceJarPath, sourceJarHash)
 

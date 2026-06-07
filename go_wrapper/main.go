@@ -27,7 +27,7 @@ var ProgramInfo struct {
 
 var ErrLogger = log.New(os.Stderr, "ERROR:", log.Lshortfile)
 
-var GracefulErr = errors.New("expected error, nothing to do but to exit")
+var ErrExpected = errors.New("expected error, nothing to do but to exit")
 
 // TODO: maybe check java version
 
@@ -35,7 +35,7 @@ func main() {
 	err := AppMain()
 
 	if err != nil {
-		if !errors.Is(err, GracefulErr) {
+		if !errors.Is(err, ErrExpected) {
 			ErrLogger.Println(err)
 		}
 		os.Exit(1)
@@ -149,7 +149,7 @@ func AppMain() error {
 	// if no arguments were given, just print help and exit
 	if len(args) <= 0 {
 		PrintHelp(os.Stderr, commands)
-		return GracefulErr
+		return ErrExpected
 	}
 
 	// user wants help
@@ -171,7 +171,7 @@ func AppMain() error {
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
 		fmt.Fprintf(os.Stderr, "\n")
 		PrintHelp(os.Stderr, commands)
-		return GracefulErr
+		return ErrExpected
 	}
 
 	sourceCodes, err := GetSourceCodes()

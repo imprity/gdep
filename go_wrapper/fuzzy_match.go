@@ -15,7 +15,7 @@ func NewMatrix(initCapacity int) *Matrix {
 	return &Matrix{
 		Width:  0,
 		Height: 0,
-		Values: make([]int, initCapacity, initCapacity),
+		Values: make([]int, initCapacity),
 	}
 }
 
@@ -30,7 +30,7 @@ func (m *Matrix) PrepareForUse(width, height int) {
 			newCapacity *= 2
 		}
 
-		m.Values = make([]int, newCapacity, newCapacity)
+		m.Values = make([]int, newCapacity)
 	} else {
 		clear(m.Values)
 	}
