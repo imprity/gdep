@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"strings"
 )
 
 type Settings struct {
@@ -26,27 +27,42 @@ var ProgramInfo struct {
 
 var ErrLogger = log.New(os.Stderr, "ERROR:", log.Lshortfile)
 
+var GracefulErr = errors.New("expected error, nothing to do but to exit")
+
 // TODO: maybe check java version
 
 func main() {
-	exitCode := (func() int {
-		pprofFile, err := os.Create("cpu.pprof")
-		if err != nil {
-			ErrLogger.Fatal("could not create CPU profile: ", err)
-		}
-		defer pprofFile.Close()
-		if err := pprof.StartCPUProfile(pprofFile); err != nil {
-			ErrLogger.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
+	err := AppMain()
 
-		return AppMain()
-	})()
-
-	os.Exit(exitCode)
+	if err != nil {
+		if !errors.Is(err, GracefulErr) {
+			ErrLogger.Println(err)
+		}
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
-func AppMain() int {
+func AppMain() error {
+	args := os.Args[1:]
+
+	// check if first argument is profiling argument
+	if len(args) > 0 {
+		if cut, didCut := strings.CutPrefix(args[0], "pprof="); didCut {
+			pprofFileName := strings.TrimSpace(cut)
+			pprofFile, err := os.Create(pprofFileName)
+			if err != nil {
+				return fmt.Errorf("could not create CPU profile \"%s\": %w", pprofFileName, err)
+			}
+			defer pprofFile.Close()
+
+			if err := pprof.StartCPUProfile(pprofFile); err != nil {
+				return fmt.Errorf("could not start CPU profile: %w", err)
+			}
+			defer pprof.StopCPUProfile()
+		}
+	}
+
 	// ===========================
 	// setting up ProgramInfo
 	// ===========================
@@ -62,7 +78,7 @@ func AppMain() int {
 	{
 		wd, err := os.Getwd()
 		if err != nil {
-			ErrLogger.Fatalf("failed to get current working directory: %v", err)
+			return fmt.Errorf("failed to get current working directory: %w", err)
 		}
 		ProgramInfo.Cwd = wd
 	}
@@ -71,7 +87,7 @@ func AppMain() int {
 	{
 		execPath, err := os.Executable()
 		if err != nil {
-			ErrLogger.Fatalf("failed to get executable's path: %v", err)
+			return fmt.Errorf("failed to get executable's path: %w", err)
 		}
 		execDir := filepath.Dir(execPath)
 
@@ -89,12 +105,12 @@ func AppMain() int {
 		settingsJson, err := os.ReadFile(settingsFile)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
-				ErrLogger.Fatalf("could not open settings at \"%s\": %v", settingsFile, err)
+				return fmt.Errorf("could not open settings at \"%s\": %w", settingsFile, err)
 			}
 		} else {
-			err := json.Unmarshal(settingsJson, settings)
+			err := json.Unmarshal(settingsJson, &settings)
 			if err != nil {
-				ErrLogger.Fatalf("failed to parse \"%s\": %v", settingsFile, err)
+				return fmt.Errorf("failed to parse \"%s\": %w", settingsFile, err)
 			}
 		}
 
@@ -121,11 +137,9 @@ func AppMain() int {
 	{
 		err := os.MkdirAll(ProgramInfo.CacheDir, 0775)
 		if err != nil {
-			ErrLogger.Fatalf("failed to create directory \"%s\": %v", ProgramInfo.CacheDir, err)
+			return fmt.Errorf("failed to create directory \"%s\": %w", ProgramInfo.CacheDir, err)
 		}
 	}
-
-	args := os.Args[1:]
 
 	// init commands
 	commands := []Command{
@@ -135,12 +149,13 @@ func AppMain() int {
 	// if no arguments were given, just print help and exit
 	if len(args) <= 0 {
 		PrintHelp(os.Stderr, commands)
-		return 1
+		return GracefulErr
 	}
 
 	// user wants help
 	if args[0] == "help" {
 		PrintHelp(os.Stdout, commands)
+		return nil
 	}
 
 	var toRun Command
@@ -156,29 +171,35 @@ func AppMain() int {
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
 		fmt.Fprintf(os.Stderr, "\n")
 		PrintHelp(os.Stderr, commands)
-		return 1
+		return GracefulErr
 	}
 
-	sourceCodes, err := GetExternalSourceCodes()
+	sourceCodes, err := GetSourceCodes()
 	if err != nil {
-		ErrLogger.Fatal(err)
+		return fmt.Errorf("failed to get source codes: %w", err)
 	}
 
 	err = toRun.Run(sourceCodes, args[1:])
 	if err != nil {
-		ErrLogger.Fatal(err)
+		return fmt.Errorf("failed to execute command \"%s\": %w", toRun.GetName(), err)
 	}
 
-	return 0
+	return nil
 }
 
 func PrintHelp(w io.Writer, commands []Command) {
 	fmt.Fprint(w, "gdep\n")
 	fmt.Fprint(w, "\n")
 	fmt.Fprint(w, "usage:\n")
+	fmt.Fprint(w, "  flags:\n")
+	fmt.Fprint(w, "    pprof=<file> : write cpu profile to <file>\n")
 	fmt.Fprint(w, "\n")
-	fmt.Fprint(w, "help : prints this message\n")
+	fmt.Fprint(w, "  commands:\n")
+	fmt.Fprint(w, "    help : prints this message\n")
 	for _, c := range commands {
-		fmt.Fprintf(w, "%s : %s\n", c.GetName(), c.GetDescription())
+		fmt.Fprintf(w, "    %s : %s\n", c.GetName(), c.GetDescription())
 	}
+	fmt.Fprint(w, "\n")
+	fmt.Fprint(w, "  example with flag:\n")
+	fmt.Fprint(w, "    gdep pprof=cpu.pprof pack o.s.w.s.DispatcherServlet\n")
 }

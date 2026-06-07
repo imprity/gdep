@@ -65,7 +65,7 @@ type CachedGradleToolingInfo struct {
 	ExpiresAt        time.Time
 }
 
-func GetExternalSourceCodes() ([]SourceCode, error) {
+func GetSourceCodes() ([]SourceCode, error) {
 	info, err := GetGradleToolingInfo()
 	if err != nil {
 		return nil, err
