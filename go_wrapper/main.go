@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 )
 
 type Settings struct {
@@ -27,10 +29,27 @@ var ErrLogger = log.New(os.Stderr, "ERROR:", log.Lshortfile)
 // TODO: maybe check java version
 
 func main() {
+	exitCode := (func() int {
+		pprofFile, err := os.Create("cpu.pprof")
+		if err != nil {
+			ErrLogger.Fatal("could not create CPU profile: ", err)
+		}
+		defer pprofFile.Close()
+		if err := pprof.StartCPUProfile(pprofFile); err != nil {
+			ErrLogger.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+
+		return AppMain()
+	})()
+
+	os.Exit(exitCode)
+}
+
+func AppMain() int {
 	// ===========================
 	// setting up ProgramInfo
 	// ===========================
-
 	toAbsolute := func(p string) string {
 		abs, err := filepath.Abs(p)
 		if err != nil {
@@ -40,13 +59,19 @@ func main() {
 	}
 
 	// Cwd
-	ProgramInfo.Cwd = toAbsolute(os.Args[0])
+	{
+		wd, err := os.Getwd()
+		if err != nil {
+			ErrLogger.Fatalf("failed to get current working directory: %v", err)
+		}
+		ProgramInfo.Cwd = wd
+	}
 
 	// ExecDir
 	{
 		execPath, err := os.Executable()
 		if err != nil {
-			ErrLogger.Fatalf("could not get executable's path: %v", err)
+			ErrLogger.Fatalf("failed to get executable's path: %v", err)
 		}
 		execDir := filepath.Dir(execPath)
 
@@ -55,7 +80,6 @@ func main() {
 
 	// JavaHome
 	// CacheDir
-
 	{
 		// load settings
 		var settings Settings
@@ -101,19 +125,60 @@ func main() {
 		}
 	}
 
+	args := os.Args[1:]
+
+	// init commands
+	commands := []Command{
+		&DirsCommand{}, &FilesCommand{}, &PackCommand{},
+	}
+
+	// if no arguments were given, just print help and exit
+	if len(args) <= 0 {
+		PrintHelp(os.Stderr, commands)
+		return 1
+	}
+
+	// user wants help
+	if args[0] == "help" {
+		PrintHelp(os.Stdout, commands)
+	}
+
+	var toRun Command
+
+	for _, c := range commands {
+		if c.GetName() == args[0] {
+			toRun = c
+			break
+		}
+	}
+
+	if toRun == nil {
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "\n")
+		PrintHelp(os.Stderr, commands)
+		return 1
+	}
+
 	sourceCodes, err := GetExternalSourceCodes()
 	if err != nil {
 		ErrLogger.Fatal(err)
 	}
 
-	for _, sc := range sourceCodes {
-		fmt.Printf("===================\n")
-		fmt.Printf("GetSourceDirPath : %s\n", sc.GetSourceDirPath())
-		fmt.Printf("SourceFiles :\n")
+	err = toRun.Run(sourceCodes, args[1:])
+	if err != nil {
+		ErrLogger.Fatal(err)
+	}
 
-		for _, file := range sc.GetSourceFiles() {
-			fmt.Printf("    %s\n", file)
-		}
-		fmt.Printf("===================\n")
+	return 0
+}
+
+func PrintHelp(w io.Writer, commands []Command) {
+	fmt.Fprint(w, "gdep\n")
+	fmt.Fprint(w, "\n")
+	fmt.Fprint(w, "usage:\n")
+	fmt.Fprint(w, "\n")
+	fmt.Fprint(w, "help : prints this message\n")
+	for _, c := range commands {
+		fmt.Fprintf(w, "%s : %s\n", c.GetName(), c.GetDescription())
 	}
 }

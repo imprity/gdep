@@ -153,3 +153,11 @@ func HashFileToString(filename string) (string, error) {
 	}
 	return hex.EncodeToString(hash), nil
 }
+
+func AbsInt(n int) int {
+	if n < 0 {
+		return n * -1
+	} else {
+		return n
+	}
+}
