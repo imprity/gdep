@@ -65,8 +65,6 @@ func (fm *FuzzyMatchResult) Length() int {
 func FuzzyMatch(str, sub string, mat *Matrix) FuzzyMatchResult {
 	// we need to delete every character of sub to be str
 	if str == "" {
-		// return sub.length();
-		// return new FuzzyMatchResult(0, 0, sub.length());
 		return FuzzyMatchResult{
 			Begin:    0,
 			End:      0,

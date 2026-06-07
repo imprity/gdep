@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 type Command interface {
@@ -93,51 +94,53 @@ func (p *PackCommand) Run(sourceCodes []SourceCode, args []string) error {
 	}
 
 	type pathAndScore struct {
+		Dir   string
 		Path  string
 		Score int
 	}
 
 	pathAndScores := make([]pathAndScore, 0, 1024)
 
-	mat := NewMatrix(512)
-
 	for _, sc := range sourceCodes {
 		for _, file := range sc.GetSourceFiles() {
-			scoreFileName := file
-
-			if rel, relErr := filepath.Rel(sc.GetSourceDirPath(), scoreFileName); relErr == nil {
-				scoreFileName = rel
-
-				// try to remove very top parent
-				// if len(scoreFileName) > 0{
-				// 	searchStart := 0
-				//
-				// 	if scoreFileName[0] == os.PathSeparator {
-				// 		searchStart = 1
-				// 	}
-				//
-				// 	slashIndex := -1
-				//
-				// 	for i:= searchStart; i<len(scoreFileName); i++ {
-				// 		if scoreFileName[i] == os.PathSeparator {
-				// 			slashIndex = i
-				// 			break
-				// 		}
-				// 	}
-				//
-				// 	if slashIndex >= 0 {
-				// 		scoreFileName = scoreFileName[slashIndex + 1: len(scoreFileName)]
-				// 	}
-				// }
-			}
-
-			score := ScoreClassNameSimilarity(scoreFileName, args[0], mat)
 			pathAndScores = append(pathAndScores, pathAndScore{
+				Dir:   sc.GetSourceDirPath(),
 				Path:  file,
-				Score: score,
+				Score: 0,
 			})
 		}
 	}
+
+	cursor := 0
+	batchSize := 100
+
+	var wg sync.WaitGroup
+
+	for cursor < len(pathAndScores) {
+		begin := cursor
+		end := min(cursor+batchSize, len(pathAndScores))
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			mat := NewMatrix(512)
+
+			for i := begin; i < end; i++ {
+				scoreFileName := pathAndScores[i].Path
+				if rel, relErr := filepath.Rel(pathAndScores[i].Dir, scoreFileName); relErr == nil {
+					scoreFileName = rel
+				}
+
+				score := ScoreClassNameSimilarity(scoreFileName, args[0], mat)
+				pathAndScores[i].Score = score
+			}
+		}()
+
+		cursor += batchSize
+	}
+
+	wg.Wait()
 
 	slices.SortFunc(pathAndScores, func(a, b pathAndScore) int {
 		if a.Score > b.Score {
