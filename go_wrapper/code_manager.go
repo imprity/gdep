@@ -111,6 +111,70 @@ func GetSourceCodes() ([]SourceCode, error) {
 	return sourceCodes, nil
 }
 
+func GetGradleToolingInfo() (GradleToolingInfo, error) {
+	// first collect fingerprint hash files
+	fingerPrintFiles, err := GetFingerPrintFiles()
+	if err != nil {
+		return GradleToolingInfo{}, fmt.Errorf("failed to collect finger print files %w", err)
+	}
+
+	// create hash based on finger print files
+	hash, err := GetGradleFingerPrintHash(fingerPrintFiles)
+	if err != nil {
+		return GradleToolingInfo{}, fmt.Errorf("failed to hash finger print files %w", err)
+	}
+
+	// check cached json file of GradleToolingInfo
+	jsonCachePath := GetJsonToolingAPICachePath(hash)
+
+	exists, err := FileExists(jsonCachePath)
+	if err != nil {
+		return GradleToolingInfo{}, err
+	}
+
+	if exists { // cached json file exists, try to use it
+		cachedInfo, cacheLoadErr := LoadGradleToolingInfoFromJsonCache(jsonCachePath)
+
+		if cacheLoadErr != nil {
+			ErrLogger.Printf("failed to load cached Gradle Tooling API info from \"%s\": %v", jsonCachePath, cacheLoadErr)
+			ErrLogger.Printf("trying to get from gradle directly")
+		} else if cachedInfo.FingerPrintHash == hash && time.Now().Before(cachedInfo.ExpiresAt) {
+			return cachedInfo.GradleToolingInfo, nil
+		}
+	}
+
+	// either cahce expired or something went wrong
+	// get directly from java
+	info, err := GetGradleToolingInfoFromJava()
+	if err != nil {
+		return GradleToolingInfo{}, fmt.Errorf("failed to get Gradle Tooling API info from java: %w", err)
+	}
+
+	// save it to json cache
+	expiresAt := time.Now().Add(ToolingApiCacheTTL)
+
+	cachedInfo := CachedGradleToolingInfo{
+		GradleToolingInfo: info,
+
+		FingerPrintFiles: fingerPrintFiles,
+		FingerPrintHash:  hash,
+
+		ExpiresAt: expiresAt,
+	}
+
+	jsonBytes, err := json.Marshal(cachedInfo)
+	if err != nil {
+		return GradleToolingInfo{}, err
+	}
+
+	err = os.WriteFile(jsonCachePath, jsonBytes, 0664)
+	if err != nil {
+		return GradleToolingInfo{}, err
+	}
+
+	return info, nil
+}
+
 func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 	// first get hash of the jar
 	sourceJarHash, err := HashFileToString(sourceJarPath)
@@ -140,6 +204,9 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 	} else {
 		sourceDirPath := GetUnzippedSourceDirPath(sourceJarPath, sourceJarHash)
 
+		// unzipping takes fucking forever
+		// atleast log it
+		InfoLogger.Printf("unzipping \"%s\" to \"%s\"", sourceJarPath, sourceDirPath)
 		err = ExtractZip(sourceJarPath, sourceDirPath)
 		if err != nil {
 			return nil, err
@@ -150,7 +217,6 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 			return nil, err
 		}
 
-		// sourceCode = NewExternalSourceCode(sourceDirPath, sourceFiles, sourceJarPath, sourceJarHash)
 		sourceCode = ExternalSourceCode{
 			SourceDirPath: sourceDirPath,
 			SourceFiles:   sourceFiles,
@@ -172,70 +238,19 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 	return &sourceCode, nil
 }
 
-func GetGradleToolingInfo() (GradleToolingInfo, error) {
-	// first collect fingerprint hash
-	fingerPrintFiles, err := GetFingerPrintFiles()
+func LoadGradleToolingInfoFromJsonCache(jsonCachePath string) (CachedGradleToolingInfo, error){
+	jsonBytes, err := os.ReadFile(jsonCachePath)
 	if err != nil {
-		return GradleToolingInfo{}, err
+		return CachedGradleToolingInfo{}, err
 	}
 
-	// check cache
-	hash, err := GetGradleFingerPrintHash(fingerPrintFiles)
+	var cachedInfo CachedGradleToolingInfo
+	err = json.Unmarshal(jsonBytes, &cachedInfo)
 	if err != nil {
-		return GradleToolingInfo{}, err
+		return CachedGradleToolingInfo{}, err
 	}
 
-	jsonCachePath := GetJsonToolingAPICachePath(hash)
-
-	exists, err := FileExists(jsonCachePath)
-	if err != nil {
-		return GradleToolingInfo{}, err
-	}
-
-	if exists {
-		jsonBytes, err := os.ReadFile(jsonCachePath)
-		if err != nil {
-			return GradleToolingInfo{}, err
-		}
-
-		var cachedInfo CachedGradleToolingInfo
-		err = json.Unmarshal(jsonBytes, &cachedInfo)
-		if err != nil {
-			return GradleToolingInfo{}, err
-		}
-
-		if cachedInfo.FingerPrintHash == hash && time.Now().Before(cachedInfo.ExpiresAt) {
-			return cachedInfo.GradleToolingInfo, nil
-		}
-	}
-
-	info, err := GetGradleToolingInfoFromJava()
-	if err != nil {
-		return GradleToolingInfo{}, err
-	}
-
-	expiresAt := time.Now().Add(ToolingApiCacheTTL)
-
-	cachedInfo := CachedGradleToolingInfo{
-		GradleToolingInfo: info,
-
-		FingerPrintFiles: fingerPrintFiles,
-		FingerPrintHash:  hash,
-
-		ExpiresAt: expiresAt,
-	}
-
-	jsonBytes, err := json.Marshal(cachedInfo)
-	if err != nil {
-		return GradleToolingInfo{}, err
-	}
-
-	err = os.WriteFile(jsonCachePath, jsonBytes, 0664)
-	if err != nil {
-		return GradleToolingInfo{}, err
-	}
-
-	return info, nil
+	return cachedInfo, nil
 }
 
 func GetGradleToolingInfoFromJava() (GradleToolingInfo, error) {
@@ -320,6 +335,8 @@ func GetJsonToolingAPICachePath(fingerPrintHash string) string {
 	return filepath.Join(ProgramInfo.CacheDir, fileName)
 }
 
+// list is copy pasted from
+// https://github.com/gradle/actions/blob/main/sources/src/cache-service-basic.ts
 var fingerPrintFilePatterns = []string{
 	"**/*.gradle*",
 	"*.gradle*",
@@ -337,7 +354,7 @@ var fingerPrintFilePatternGlobs []glob.Glob = nil
 func GetFingerPrintFiles() ([]string, error) {
 	if fingerPrintFilePatternGlobs == nil {
 		for _, p := range fingerPrintFilePatterns {
-			g := glob.MustCompile(p)
+			g := glob.MustCompile(p, '/')
 			fingerPrintFilePatternGlobs = append(fingerPrintFilePatternGlobs, g)
 		}
 	}

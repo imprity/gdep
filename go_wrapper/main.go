@@ -25,7 +25,8 @@ var ProgramInfo struct {
 	Cwd      string
 }
 
-var ErrLogger = log.New(os.Stderr, "ERROR:", log.Lshortfile)
+var ErrLogger = log.New(os.Stderr, "[ERROR]: ", log.Lshortfile)
+var InfoLogger = log.New(os.Stderr, "[INFO]: ", log.Lshortfile)
 
 var ErrExpected = errors.New("expected error, nothing to do but to exit")
 
@@ -60,6 +61,8 @@ func AppMain() error {
 				return fmt.Errorf("could not start CPU profile: %w", err)
 			}
 			defer pprof.StopCPUProfile()
+
+			args = args[1:]
 		}
 	}
 
