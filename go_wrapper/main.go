@@ -176,13 +176,17 @@ func AppMain() error {
 		if settings.JavaHome != nil {
 			javaHome = *settings.JavaHome
 		} else {
-			javaHome = (os.Getenv("JAVA_HOME"))
+			javaHome = os.Getenv("JAVA_HOME")
 		}
 
 		if settings.CacheDir != nil {
 			cacheDir = *settings.CacheDir
 		} else {
 			cacheDir = filepath.Join(ProgramInfo.ExecDir, "gdep-cache")
+		}
+
+		if strings.TrimSpace(javaHome) == "" {
+			return fmt.Errorf("JAVA_HOME is not set")
 		}
 
 		ProgramInfo.JavaHome = toAbsolute(javaHome)
