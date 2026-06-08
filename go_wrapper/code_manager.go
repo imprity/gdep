@@ -98,8 +98,8 @@ func GetSourceCodes() ([]SourceCode, error) {
 	for _, srcDir := range info.ProjectSourceDirectories {
 		files, err := GetFilesInDirectory(srcDir)
 		if err != nil {
-			ErrLogger.Println(err) // TODO: have a control to quite this down
-			break
+			ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
+			continue
 		}
 
 		sourceCodes = append(sourceCodes, &ProjectSourceCode{
@@ -162,7 +162,7 @@ func GetGradleToolingInfo() (GradleToolingInfo, error) {
 		ExpiresAt: expiresAt,
 	}
 
-	jsonBytes, err := json.Marshal(cachedInfo)
+	jsonBytes, err := json.MarshalIndent(cachedInfo, "", "  ")
 	if err != nil {
 		return GradleToolingInfo{}, err
 	}
@@ -224,7 +224,7 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 			SourceJarHash: sourceJarHash,
 		}
 
-		jsonBytes, err := json.Marshal(sourceCode)
+		jsonBytes, err := json.MarshalIndent(sourceCode, "", "  ")
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +238,7 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 	return &sourceCode, nil
 }
 
-func LoadGradleToolingInfoFromJsonCache(jsonCachePath string) (CachedGradleToolingInfo, error){
+func LoadGradleToolingInfoFromJsonCache(jsonCachePath string) (CachedGradleToolingInfo, error) {
 	jsonBytes, err := os.ReadFile(jsonCachePath)
 	if err != nil {
 		return CachedGradleToolingInfo{}, err
@@ -258,12 +258,10 @@ func GetGradleToolingInfoFromJava() (GradleToolingInfo, error) {
 
 	javaExe := filepath.Join(ProgramInfo.JavaHome, "bin", "java")
 	gdepJarPath := filepath.Join(ProgramInfo.ExecDir, "gdep.jar")
-	logFilePath := filepath.Join(ProgramInfo.ExecDir, "gdep-log.txt")
 
 	args = append(
 		args,
 		"--enable-native-access=ALL-UNNAMED",
-		fmt.Sprintf("-Dorg.slf4j.simpleLogger.logFile=%s", logFilePath),
 		"-jar",
 		gdepJarPath,
 	)

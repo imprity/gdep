@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.util.*;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.events.OperationType;
+import org.gradle.tooling.events.ProgressEvent;
 import org.gradle.tooling.model.DomainObjectSet;
 import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
@@ -48,11 +50,23 @@ public class App {
 
         Set<String> projectSourceDirs = new HashSet<>();
 
+        logger.info("connecting to gradle...");
         try (ProjectConnection connection = GradleConnector.newConnector()
                 .forProjectDirectory(new File(cwd))
                 .connect()) {
 
-            EclipseProject project = connection.getModel(EclipseProject.class);
+            var modelBuilder = connection.model(EclipseProject.class);
+            modelBuilder.addProgressListener(
+                    (ProgressEvent event) -> {
+                        if (event.getDisplayName() != null && !event.getDisplayName().equals("<null>")) {
+                            logger.info("{}", event.getDisplayName());
+                        }
+                    },
+                    OperationType.FILE_DOWNLOAD,
+                    OperationType.PROJECT_CONFIGURATION,
+                    OperationType.BUILD_PHASE,
+                    OperationType.PROBLEMS);
+            EclipseProject project = modelBuilder.get();
 
             // get external source jar paths
             Set<EclipseExternalDependency> deps = getProjectDependencies(project);
@@ -84,7 +98,7 @@ public class App {
             // TODO: implement include and exclude patterns if you can
             Set<EclipseSourceDirectory> srcDirs = getProjectSourceDirs(project);
             for (final EclipseSourceDirectory dir : srcDirs) {
-                projectSourceDirs.add(Util.cleanPath(dir.getPath()));
+                projectSourceDirs.add(Util.cleanPath(dir.getDirectory().getAbsolutePath()));
             }
         }
 
