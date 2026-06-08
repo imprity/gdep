@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"flag"
+	"os"
 )
 
 type Command interface {
@@ -33,7 +35,7 @@ func (d *DirsCommand) GetDescription() string {
 }
 
 func (d *DirsCommand) ParseArgs(args []string) error {
-	return nil
+	return GetDefaultFlagSet(d).Parse(args)
 }
 
 func (d *DirsCommand) Run(sourceCodes []SourceCode) error {
@@ -63,8 +65,8 @@ func (f *FilesCommand) GetDescription() string {
 	return "list source files"
 }
 
-func (d *FilesCommand) ParseArgs(args []string) error {
-	return nil
+func (f *FilesCommand) ParseArgs(args []string) error {
+	return GetDefaultFlagSet(f).Parse(args)
 }
 
 func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
@@ -89,6 +91,7 @@ func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
 
 type PackCommand struct {
 	ClassName string
+	CandidateCount uint
 }
 
 func (p *PackCommand) GetName() string {
@@ -100,8 +103,20 @@ func (p *PackCommand) GetDescription() string {
 }
 
 func (p *PackCommand) ParseArgs(args []string) error {
+	flagset := GetDefaultFlagSet(p)
+
+	flagset.UintVar(&p.CandidateCount, "n", 5, "number of candidates to print")
+
+	if err:= flagset.Parse(args); err != nil {
+		return err
+	}
+
+	args = flagset.Args()
+
 	if len(args) <= 0 {
-		return fmt.Errorf("pack command needs atleast one argument")
+		fmt.Fprintf(os.Stderr, "pack command needs atleast one argument\n")
+		flagset.Usage()
+		return ErrExpected
 	}
 	p.ClassName = strings.TrimSpace(args[0])
 
@@ -168,10 +183,26 @@ func (p *PackCommand) Run(sourceCodes []SourceCode) error {
 		}
 	})
 
-	for i := 0; i < min(len(pathAndScores), 5); i++ {
+	for i := 0; i < min(len(pathAndScores), int(p.CandidateCount)); i++ {
 		ps := pathAndScores[i]
 		fmt.Println(ps.Path)
 	}
 
 	return nil
+}
+
+// ==============================
+// Helper Functions
+// ==============================
+
+func GetDefaultFlagSet(cmd Command) *flag.FlagSet{
+	flagset := flag.NewFlagSet(cmd.GetName(), flag.ExitOnError)
+
+	flagset.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Command %s:\n", cmd.GetName())
+		fmt.Fprintf(os.Stderr, "  %s\n", cmd.GetDescription())
+		flagset.PrintDefaults()
+	}
+
+	return flagset;
 }

@@ -109,7 +109,7 @@ func AppMain() error {
 	args = args[1:]
 
 	if err := toRun.ParseArgs(args); err != nil {
-		return fmt.Errorf("failed to parse arguments for %s command: %v", toRun.GetName(), err)
+		return fmt.Errorf("failed to parse arguments for %s command: %w", toRun.GetName(), err)
 	}
 
 	pprofFileName = strings.TrimSpace(pprofFileName)
