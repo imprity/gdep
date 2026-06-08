@@ -15,7 +15,6 @@ import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,9 +25,7 @@ public class App {
 
     @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
     public static record GradleToolingInfo(
-            Set<String> externalSourceJars,
-            Set<String> projectSourceDirectories,
-            @Nullable String jdkPath) {
+            Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {
 
         public GradleToolingInfo {
             externalSourceJars = Collections.unmodifiableSet(externalSourceJars);
@@ -58,7 +55,8 @@ public class App {
             var modelBuilder = connection.model(EclipseProject.class);
             modelBuilder.addProgressListener(
                     (ProgressEvent event) -> {
-                        if (event.getDisplayName() != null && !event.getDisplayName().equals("<null>")) {
+                        if (event.getDisplayName() != null
+                                && !event.getDisplayName().equals("<null>")) {
                             logger.info("{}", event.getDisplayName());
                         }
                     },

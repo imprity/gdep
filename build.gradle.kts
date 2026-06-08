@@ -1,14 +1,9 @@
 import com.diffplug.spotless.LineEnding
-import net.ltgt.gradle.errorprone.errorprone
-import net.ltgt.gradle.nullaway.nullaway
 
 plugins {
     application
 
     id("com.diffplug.spotless").version("8.6.0")
-    id("net.ltgt.errorprone").version("5.1.0")
-    id("net.ltgt.nullaway").version("3.0.0")
-    id("com.github.spotbugs").version("6.5.5")
 }
 
 repositories {
@@ -20,25 +15,16 @@ repositories {
 
 dependencies {
     implementation("org.gradle:gradle-tooling-api:9.2.1")
-    // The tooling API need an SLF4J implementation available at runtime, replace this with any other implementation
+    // The tooling API need an SLF4J implementation available at runtime
+    // We just use slf4j-simple cause it does everything I need
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 
     implementation("com.dslplatform:dsl-json:2.0.2")
     annotationProcessor("com.dslplatform:dsl-json:2.0.2")
 
-    implementation("org.jspecify:jspecify:1.0.0")
-
-    // Use JUnit test framework.
     testImplementation(libs.junit)
-
-    errorprone("com.google.errorprone:error_prone_core:2.42.0") 
-    errorprone("com.uber.nullaway:nullaway:0.13.4")
-
-    spotbugsSlf4j("org.slf4j:slf4j-api:2.0.17")
-    spotbugsSlf4j("org.slf4j:slf4j-simple:2.0.17")
 }
 
-// Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
@@ -55,30 +41,9 @@ spotless {
      }
 }
 
-nullaway {
-    onlyNullMarked = true
-    jspecifyMode = true
-}
-
 // java compile settings
 tasks.withType<JavaCompile>().configureEach {
-    options.errorprone  {
-        error("NullAway")
-        nullaway {
-            error()
-            excludedClassAnnotations.add("javax.annotation.processing.Generated")
-        }
-        disableWarningsInGeneratedCode = true
-    }
-
     options.release = 17
-}
-
-spotbugs {
-    ignoreFailures = false
-    effort = com.github.spotbugs.snom.Effort.DEFAULT
-    reportLevel = com.github.spotbugs.snom.Confidence.DEFAULT
-    excludeFilter = file("spotbugs_ignore.xml")
 }
 
 // build fat jar

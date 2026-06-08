@@ -1,3 +1,7 @@
 gdep.exe
 gdep
 gdep-settings.json
+
+# I like having a build.bat file in a go project main
+# But I don't like it enought to maintain it
+build.bat
