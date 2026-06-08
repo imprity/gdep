@@ -12,7 +12,9 @@ type Command interface {
 	GetName() string
 	GetDescription() string
 
-	Run(sourceCodes []SourceCode, args []string) error
+	ParseArgs(args []string) error
+
+	Run(sourceCodes []SourceCode) error
 }
 
 // ==============================
@@ -30,7 +32,11 @@ func (d *DirsCommand) GetDescription() string {
 	return "list source directories"
 }
 
-func (d *DirsCommand) Run(sourceCodes []SourceCode, args []string) error {
+func (d *DirsCommand) ParseArgs(args []string) error {
+	return nil
+}
+
+func (d *DirsCommand) Run(sourceCodes []SourceCode) error {
 	slices.SortFunc(sourceCodes, func(a, b SourceCode) int {
 		return strings.Compare(a.GetSourceDirPath(), b.GetSourceDirPath())
 	})
@@ -57,7 +63,11 @@ func (f *FilesCommand) GetDescription() string {
 	return "list source files"
 }
 
-func (f *FilesCommand) Run(sourceCodes []SourceCode, args []string) error {
+func (d *FilesCommand) ParseArgs(args []string) error {
+	return nil
+}
+
+func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
 	srcFiles := make([]string, 0, 1024)
 
 	for _, sc := range sourceCodes {
@@ -78,6 +88,7 @@ func (f *FilesCommand) Run(sourceCodes []SourceCode, args []string) error {
 // ==============================
 
 type PackCommand struct {
+	ClassName string
 }
 
 func (p *PackCommand) GetName() string {
@@ -88,11 +99,16 @@ func (p *PackCommand) GetDescription() string {
 	return "search files using class path. e.g. gdep pack o.s.w.s.DispatcherServlet"
 }
 
-func (p *PackCommand) Run(sourceCodes []SourceCode, args []string) error {
+func (p *PackCommand) ParseArgs(args []string) error {
 	if len(args) <= 0 {
 		return fmt.Errorf("pack command needs atleast one argument")
 	}
+	p.ClassName = strings.TrimSpace(args[0])
 
+	return nil
+}
+
+func (p *PackCommand) Run(sourceCodes []SourceCode) error {
 	type pathAndScore struct {
 		Dir   string
 		Path  string
@@ -132,7 +148,7 @@ func (p *PackCommand) Run(sourceCodes []SourceCode, args []string) error {
 					scoreFileName = rel
 				}
 
-				score := ScoreClassNameSimilarity(scoreFileName, args[0], mat)
+				score := ScoreClassNameSimilarity(scoreFileName, p.ClassName, mat)
 				pathAndScores[i].Score = score
 			}
 		}()

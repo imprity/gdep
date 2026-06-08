@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -47,23 +47,76 @@ func main() {
 func AppMain() error {
 	args := os.Args[1:]
 
-	// check if first argument is profiling argument
-	if len(args) > 0 {
-		if cut, didCut := strings.CutPrefix(args[0], "pprof="); didCut {
-			pprofFileName := strings.TrimSpace(cut)
-			pprofFile, err := os.Create(pprofFileName)
-			if err != nil {
-				return fmt.Errorf("could not create CPU profile \"%s\": %w", pprofFileName, err)
-			}
-			defer pprofFile.Close()
+	// init commands
+	commands := []Command{
+		&DirsCommand{},
+		&FilesCommand{},
+		&PackCommand{},
+	}
 
-			if err := pprof.StartCPUProfile(pprofFile); err != nil {
-				return fmt.Errorf("could not start CPU profile: %w", err)
-			}
-			defer pprof.StopCPUProfile()
+	// init flagset
+	flagset := flag.NewFlagSet("main", flag.ExitOnError)
 
-			args = args[1:]
+	var pprofFileName string
+	flagset.StringVar(&pprofFileName, "pprof", "", "write cpu profile to given file")
+
+	flagset.Usage = getFlagUsageFunc(commands, flagset)
+
+	// we ignore the errors because flagset will exit anyway
+	flagset.Parse(args)
+
+	// get the rest of the arguments
+	args = flagset.Args()
+
+	// if no arguments were given, just print help and exit
+	if len(args) <= 0 {
+		flagset.Usage()
+		return ErrExpected
+	}
+
+	// user wants help
+	if args[0] == "help" {
+		flagset.Usage()
+		return nil
+	}
+
+	// get command user wants to run
+	var toRun Command
+
+	for _, c := range commands {
+		if c.GetName() == args[0] {
+			toRun = c
+			break
 		}
+	}
+
+	// unknown command, exit
+	if toRun == nil {
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "\n")
+		flagset.Usage()
+		return ErrExpected
+	}
+
+	// consume argument
+	args = args[1:]
+
+	if err := toRun.ParseArgs(args); err != nil {
+		return fmt.Errorf("failed to parse arguments for %s command: %v", toRun.GetName(), err)
+	}
+
+	pprofFileName = strings.TrimSpace(pprofFileName)
+	if pprofFileName != "" {
+		pprofFile, err := os.Create(pprofFileName)
+		if err != nil {
+			return fmt.Errorf("could not create CPU profile \"%s\": %w", pprofFileName, err)
+		}
+		defer pprofFile.Close()
+
+		if err := pprof.StartCPUProfile(pprofFile); err != nil {
+			return fmt.Errorf("could not start CPU profile: %w", err)
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	// ===========================
@@ -144,45 +197,12 @@ func AppMain() error {
 		}
 	}
 
-	// init commands
-	commands := []Command{
-		&DirsCommand{}, &FilesCommand{}, &PackCommand{},
-	}
-
-	// if no arguments were given, just print help and exit
-	if len(args) <= 0 {
-		PrintHelp(os.Stderr, commands)
-		return ErrExpected
-	}
-
-	// user wants help
-	if args[0] == "help" {
-		PrintHelp(os.Stdout, commands)
-		return nil
-	}
-
-	var toRun Command
-
-	for _, c := range commands {
-		if c.GetName() == args[0] {
-			toRun = c
-			break
-		}
-	}
-
-	if toRun == nil {
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "\n")
-		PrintHelp(os.Stderr, commands)
-		return ErrExpected
-	}
-
 	sourceCodes, err := GetSourceCodes()
 	if err != nil {
 		return fmt.Errorf("failed to get source codes: %w", err)
 	}
 
-	err = toRun.Run(sourceCodes, args[1:])
+	err = toRun.Run(sourceCodes)
 	if err != nil {
 		return fmt.Errorf("failed to execute command \"%s\": %w", toRun.GetName(), err)
 	}
@@ -190,19 +210,23 @@ func AppMain() error {
 	return nil
 }
 
-func PrintHelp(w io.Writer, commands []Command) {
-	fmt.Fprint(w, "gdep\n")
-	fmt.Fprint(w, "\n")
-	fmt.Fprint(w, "usage:\n")
-	fmt.Fprint(w, "  flags:\n")
-	fmt.Fprint(w, "    pprof=<file> : write cpu profile to <file>\n")
-	fmt.Fprint(w, "\n")
-	fmt.Fprint(w, "  commands:\n")
-	fmt.Fprint(w, "    help : prints this message\n")
-	for _, c := range commands {
-		fmt.Fprintf(w, "    %s : %s\n", c.GetName(), c.GetDescription())
+func getFlagUsageFunc(commands []Command, flagSet *flag.FlagSet) func() {
+	return func() {
+		w := os.Stderr
+
+		fmt.Fprint(w, "gdep\n")
+		fmt.Fprint(w, "\n")
+		fmt.Fprint(w, "usage:\n")
+		fmt.Fprint(w, "\n")
+		fmt.Fprint(w, "flags:\n")
+		flagSet.PrintDefaults()
+		fmt.Fprint(w, "commands:\n")
+		fmt.Fprint(w, "  help : prints this message\n")
+		for _, c := range commands {
+			fmt.Fprintf(w, "  %s : %s\n", c.GetName(), c.GetDescription())
+		}
+		fmt.Fprint(w, "\n")
+		fmt.Fprint(w, "example with flag:\n")
+		fmt.Fprint(w, "  gdep --pprof=cpu.pprof pack o.s.w.s.DispatcherServlet\n")
 	}
-	fmt.Fprint(w, "\n")
-	fmt.Fprint(w, "  example with flag:\n")
-	fmt.Fprint(w, "    gdep pprof=cpu.pprof pack o.s.w.s.DispatcherServlet\n")
 }
