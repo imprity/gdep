@@ -57,8 +57,15 @@ func AppMain() error {
 	// init flagset
 	flagset := flag.NewFlagSet("main", flag.ExitOnError)
 
+	// ====================
+	// FLAGS
+	// ====================
 	var pprofFileName string
+	var ignoreCache bool
+
 	flagset.StringVar(&pprofFileName, "pprof", "", "write cpu profile to given file")
+	flagset.BoolVar(&ignoreCache, "ignore-cache", false, "ignore Gradle Tooling API cache")
+	// ====================
 
 	flagset.Usage = getFlagUsageFunc(commands, flagset)
 
@@ -201,7 +208,7 @@ func AppMain() error {
 		}
 	}
 
-	sourceCodes, err := GetSourceCodes()
+	sourceCodes, err := GetSourceCodes(ignoreCache)
 	if err != nil {
 		return fmt.Errorf("failed to get source codes: %w", err)
 	}

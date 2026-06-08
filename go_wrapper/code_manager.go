@@ -65,8 +65,8 @@ type CachedGradleToolingInfo struct {
 	ExpiresAt        time.Time
 }
 
-func GetSourceCodes() ([]SourceCode, error) {
-	info, err := GetGradleToolingInfo()
+func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
+	info, err := GetGradleToolingInfo(ignoreCache)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func GetSourceCodes() ([]SourceCode, error) {
 	return sourceCodes, nil
 }
 
-func GetGradleToolingInfo() (GradleToolingInfo, error) {
+func GetGradleToolingInfo(ignoreCache bool) (GradleToolingInfo, error) {
 	// first collect fingerprint hash files
 	fingerPrintFiles, err := GetFingerPrintFiles()
 	if err != nil {
@@ -127,19 +127,21 @@ func GetGradleToolingInfo() (GradleToolingInfo, error) {
 	// check cached json file of GradleToolingInfo
 	jsonCachePath := GetJsonToolingAPICachePath(hash)
 
-	exists, err := FileExists(jsonCachePath)
-	if err != nil {
-		return GradleToolingInfo{}, err
-	}
+	if !ignoreCache {
+		exists, err := FileExists(jsonCachePath)
+		if err != nil {
+			return GradleToolingInfo{}, err
+		}
 
-	if exists { // cached json file exists, try to use it
-		cachedInfo, cacheLoadErr := LoadGradleToolingInfoFromJsonCache(jsonCachePath)
+		if exists { // cached json file exists, try to use it
+			cachedInfo, cacheLoadErr := LoadGradleToolingInfoFromJsonCache(jsonCachePath)
 
-		if cacheLoadErr != nil {
-			ErrLogger.Printf("failed to load cached Gradle Tooling API info from \"%s\": %v", jsonCachePath, cacheLoadErr)
-			ErrLogger.Printf("trying to get from gradle directly")
-		} else if cachedInfo.FingerPrintHash == hash && time.Now().Before(cachedInfo.ExpiresAt) {
-			return cachedInfo.GradleToolingInfo, nil
+			if cacheLoadErr != nil {
+				ErrLogger.Printf("failed to load cached Gradle Tooling API info from \"%s\": %v", jsonCachePath, cacheLoadErr)
+				ErrLogger.Printf("trying to get from gradle directly")
+			} else if cachedInfo.FingerPrintHash == hash && time.Now().Before(cachedInfo.ExpiresAt) {
+				return cachedInfo.GradleToolingInfo, nil
+			}
 		}
 	}
 
