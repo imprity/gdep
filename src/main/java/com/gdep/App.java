@@ -39,7 +39,12 @@ public class App {
     }
 
     private static int run() throws IOException {
-        final String cwd = System.getProperty("user.dir");
+        final String projectDir = System.getProperty("gdep.internal.project.dir");
+
+        if (projectDir == null) {
+            logger.error("gdep.internal.project.dir is not set.");
+            return 1;
+        }
 
         Set<String> externSourceJarPaths = new HashSet<>();
 
@@ -49,7 +54,7 @@ public class App {
 
         logger.info("connecting to gradle...");
         try (ProjectConnection connection = GradleConnector.newConnector()
-                .forProjectDirectory(new File(cwd))
+                .forProjectDirectory(new File(projectDir))
                 .connect()) {
 
             var modelBuilder = connection.model(EclipseProject.class);

@@ -66,54 +66,76 @@ type CachedGradleToolingInfo struct {
 }
 
 func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
-	info, err := GetGradleToolingInfo(ignoreCache)
+	var projectDir string
+	var inGradleProject bool
+	var err error
+
+	// try to get project directory
+	projectDir, inGradleProject, err = WalkUpToGradleProjectDir()
 	if err != nil {
 		return nil, err
 	}
 
-	var sourceCodes []SourceCode
-
-	// get SourceCode from externSourceJarPaths
-	for _, jarPath := range info.ExternalSourceJars {
-		sc, err := GetSourceCodeFromJar(jarPath)
+	if inGradleProject { // we are in gradle project
+		info, err := GetGradleToolingInfo(projectDir, ignoreCache)
 		if err != nil {
 			return nil, err
 		}
-		sourceCodes = append(sourceCodes, sc)
-	}
 
-	// get SourceCode from jdk (if it exists)
-	if info.JdkPath != nil {
-		jdkZipPath := filepath.Join(filepath.Clean(*info.JdkPath), "lib", "src.zip")
+		var sourceCodes []SourceCode
+
+		// get SourceCode from externSourceJarPaths
+		for _, jarPath := range info.ExternalSourceJars {
+			sc, err := GetSourceCodeFromJar(jarPath)
+			if err != nil {
+				return nil, err
+			}
+			sourceCodes = append(sourceCodes, sc)
+		}
+
+		// get SourceCode from jdk (if it exists)
+		if info.JdkPath != nil {
+			jdkZipPath := filepath.Join(filepath.Clean(*info.JdkPath), "lib", "src.zip")
+			jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
+
+			if err != nil {
+				ErrLogger.Println(err)
+			} else {
+				sourceCodes = append(sourceCodes, jarSourceCode)
+			}
+		}
+
+		// get SourceCode from projectSourceDirs
+		for _, srcDir := range info.ProjectSourceDirectories {
+			files, err := GetFilesInDirectory(srcDir)
+			if err != nil {
+				ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
+				continue
+			}
+
+			sourceCodes = append(sourceCodes, &ProjectSourceCode{
+				SourceDirPath: srcDir,
+				SourceFiles:   files,
+			})
+		}
+
+		return sourceCodes, nil
+	} else { // we are not in gradle project
+		// then just try to get zipped java src from jdk
+		jdkZipPath := filepath.Join(ProgramInfo.JavaHome, "lib", "src.zip")
 		jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
 
 		if err != nil {
-			ErrLogger.Println(err) // TODO: have a control to quite this down
-		} else {
-			sourceCodes = append(sourceCodes, jarSourceCode)
-		}
-	}
-
-	// get SourceCode from projectSourceDirs
-	for _, srcDir := range info.ProjectSourceDirectories {
-		files, err := GetFilesInDirectory(srcDir)
-		if err != nil {
-			ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
-			continue
+			return nil, fmt.Errorf("failed to get jdk source code: %w", err)
 		}
 
-		sourceCodes = append(sourceCodes, &ProjectSourceCode{
-			SourceDirPath: srcDir,
-			SourceFiles:   files,
-		})
+		return []SourceCode{jarSourceCode}, nil
 	}
-
-	return sourceCodes, nil
 }
 
-func GetGradleToolingInfo(ignoreCache bool) (GradleToolingInfo, error) {
+func GetGradleToolingInfo(projectDir string, ignoreCache bool) (GradleToolingInfo, error) {
 	// first collect fingerprint hash files
-	fingerPrintFiles, err := GetFingerPrintFiles()
+	fingerPrintFiles, err := GetFingerPrintFiles(projectDir)
 	if err != nil {
 		return GradleToolingInfo{}, fmt.Errorf("failed to collect finger print files %w", err)
 	}
@@ -147,7 +169,7 @@ func GetGradleToolingInfo(ignoreCache bool) (GradleToolingInfo, error) {
 
 	// either cahce expired or something went wrong
 	// get directly from java
-	info, err := GetGradleToolingInfoFromJava()
+	info, err := GetGradleToolingInfoFromJava(projectDir)
 	if err != nil {
 		return GradleToolingInfo{}, fmt.Errorf("failed to get Gradle Tooling API info from java: %w", err)
 	}
@@ -255,7 +277,7 @@ func LoadGradleToolingInfoFromJsonCache(jsonCachePath string) (CachedGradleTooli
 	return cachedInfo, nil
 }
 
-func GetGradleToolingInfoFromJava() (GradleToolingInfo, error) {
+func GetGradleToolingInfoFromJava(projectDir string) (GradleToolingInfo, error) {
 	var args []string
 
 	javaExe := filepath.Join(ProgramInfo.JavaHome, "bin", "java")
@@ -264,6 +286,7 @@ func GetGradleToolingInfoFromJava() (GradleToolingInfo, error) {
 	args = append(
 		args,
 		"--enable-native-access=ALL-UNNAMED",
+		fmt.Sprintf("-Dgdep.internal.project.dir=%s", projectDir),
 		"-jar",
 		gdepJarPath,
 	)
@@ -285,13 +308,13 @@ func GetGradleToolingInfoFromJava() (GradleToolingInfo, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		return GradleToolingInfo{}, fmt.Errorf("failed to get GradleToolingInfo from java: %w", err)
+		return GradleToolingInfo{}, fmt.Errorf("failed to get Gradle Tooling API info from java: %w", err)
 	}
 
 	var info GradleToolingInfo
 	err = json.Unmarshal(buf.Bytes(), &info)
 	if err != nil {
-		return GradleToolingInfo{}, fmt.Errorf("failed to get GradleToolingInfo from java: %w", err)
+		return GradleToolingInfo{}, fmt.Errorf("failed to get Gradle Tooling API info from java: %w", err)
 	}
 
 	return info, nil
@@ -351,7 +374,7 @@ var fingerPrintFilePatterns = []string{
 
 var fingerPrintFilePatternGlobs []glob.Glob = nil
 
-func GetFingerPrintFiles() ([]string, error) {
+func GetFingerPrintFiles(projectDir string) ([]string, error) {
 	if fingerPrintFilePatternGlobs == nil {
 		for _, p := range fingerPrintFilePatterns {
 			g := glob.MustCompile(p, '/')
@@ -359,7 +382,7 @@ func GetFingerPrintFiles() ([]string, error) {
 		}
 	}
 
-	files, err := GetFilesInDirectory(ProgramInfo.Cwd)
+	files, err := GetFilesInDirectory(projectDir)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +390,7 @@ func GetFingerPrintFiles() ([]string, error) {
 	var fingerPrintFiles []string
 
 	for _, file := range files {
-		rel, err := filepath.Rel(ProgramInfo.Cwd, file)
+		rel, err := filepath.Rel(projectDir, file)
 		if err != nil {
 			return nil, err
 		}
@@ -402,4 +425,50 @@ func GetGradleFingerPrintHash(fingerPrintFiles []string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// if these files exist, it's either a gradle project
+// or a gradle sub project
+var gradleMarkers = []string{
+	"build.gradle",
+	"build.gradle.kts",
+	"settings.gradle",
+	"settings.gradle.kts",
+}
+
+// walks up from current directory to gradle project dir
+func WalkUpToGradleProjectDir() (string, bool, error) {
+	dir := ProgramInfo.Cwd
+
+	for {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to walk up the directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			if !entry.Type().IsRegular() {
+				continue
+			}
+
+			for _, marker := range gradleMarkers {
+				if entry.Name() == marker {
+					return dir, true, nil
+				}
+			}
+		}
+
+		// walk up
+		walkedUp := filepath.Dir(dir)
+
+		if walkedUp == dir ||
+			walkedUp == "." ||
+			walkedUp == "" {
+			break
+		}
+
+		dir = walkedUp
+	}
+
+	return "", false, nil
 }
