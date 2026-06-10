@@ -49,7 +49,6 @@ inside any gradle project directory to see available commands.
 
 # TODO
 
-- Support linux build.
 - Rotate `gdep-log.txt` of `gdep.exe`.
 - Write tests or something.
 - Currently, we don't walk up the directory to find gradle project root, so if you call gdep inside gradle project subfolder, gdep will fail.

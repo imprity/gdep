@@ -1,13 +1,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
-	"flag"
-	"os"
 )
 
 type Command interface {
@@ -90,7 +90,7 @@ func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
 // ==============================
 
 type PackCommand struct {
-	ClassName string
+	ClassName      string
 	CandidateCount uint
 }
 
@@ -107,7 +107,7 @@ func (p *PackCommand) ParseArgs(args []string) error {
 
 	flagset.UintVar(&p.CandidateCount, "n", 5, "number of candidates to print")
 
-	if err:= flagset.Parse(args); err != nil {
+	if err := flagset.Parse(args); err != nil {
 		return err
 	}
 
@@ -195,7 +195,7 @@ func (p *PackCommand) Run(sourceCodes []SourceCode) error {
 // Helper Functions
 // ==============================
 
-func GetDefaultFlagSet(cmd Command) *flag.FlagSet{
+func GetDefaultFlagSet(cmd Command) *flag.FlagSet {
 	flagset := flag.NewFlagSet(cmd.GetName(), flag.ExitOnError)
 
 	flagset.Usage = func() {
@@ -204,5 +204,5 @@ func GetDefaultFlagSet(cmd Command) *flag.FlagSet{
 		flagset.PrintDefaults()
 	}
 
-	return flagset;
+	return flagset
 }
