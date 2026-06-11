@@ -27,7 +27,7 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+        languageVersion = JavaLanguageVersion.of(17)
     }
 }
 
@@ -43,7 +43,7 @@ spotless {
 
 // java compile settings
 tasks.withType<JavaCompile>().configureEach {
-    options.release = 17
+    options.release = 8
 }
 
 // build fat jar

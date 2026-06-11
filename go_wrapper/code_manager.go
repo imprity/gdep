@@ -285,7 +285,7 @@ func GetGradleToolingInfoFromJava(projectDir string) (GradleToolingInfo, error) 
 
 	args = append(
 		args,
-		"--enable-native-access=ALL-UNNAMED",
+		// "--enable-native-access=ALL-UNNAMED",
 		fmt.Sprintf("-Dgdep.internal.project.dir=%s", projectDir),
 		"-jar",
 		gdepJarPath,

@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"go.dw1.io/rapidhash"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"go.dw1.io/rapidhash"
 )
 
 func FileExists(name string) (bool, error) {

@@ -1,5 +1,6 @@
 package com.gdep;
 
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 
 public class Util {
@@ -11,6 +12,6 @@ public class Util {
     }
 
     public static String cleanPath(String path) {
-        return cleanPath(Path.of(path)).toString();
+        return cleanPath(FileSystems.getDefault().getPath(path)).toString();
     }
 }

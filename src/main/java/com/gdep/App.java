@@ -7,12 +7,14 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import org.gradle.tooling.GradleConnector;
+import org.gradle.tooling.ModelBuilder;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.events.OperationType;
 import org.gradle.tooling.events.ProgressEvent;
 import org.gradle.tooling.model.DomainObjectSet;
 import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
+import org.gradle.tooling.model.eclipse.EclipseJavaSourceSettings;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
 import org.slf4j.Logger;
@@ -24,12 +26,17 @@ public class App {
     private static final Logger logger = LoggerFactory.getLogger(App.class);
 
     @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
-    public static record GradleToolingInfo(
-            Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {
+    public static class GradleToolingInfo {
+        public Set<String> externalSourceJars;
+        public Set<String> projectSourceDirectories;
+        public String jdkPath;
 
-        public GradleToolingInfo {
-            externalSourceJars = Collections.unmodifiableSet(externalSourceJars);
-            projectSourceDirectories = Collections.unmodifiableSet(projectSourceDirectories);
+        public GradleToolingInfo() {}
+
+        public GradleToolingInfo(Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {
+            this.externalSourceJars = externalSourceJars;
+            this.projectSourceDirectories = projectSourceDirectories;
+            this.jdkPath = jdkPath;
         }
     }
 
@@ -57,7 +64,7 @@ public class App {
                 .forProjectDirectory(new File(projectDir))
                 .connect()) {
 
-            var modelBuilder = connection.model(EclipseProject.class);
+            ModelBuilder<EclipseProject> modelBuilder = connection.model(EclipseProject.class);
             modelBuilder.addProgressListener(
                     (ProgressEvent event) -> {
                         if (event.getDisplayName() != null
@@ -89,7 +96,7 @@ public class App {
             //
             // but the correct thing would be to collect java home for every projects
             try {
-                var javaSettings = project.getJavaSourceSettings();
+                EclipseJavaSourceSettings javaSettings = project.getJavaSourceSettings();
                 if (javaSettings != null) {
                     jdkPath = Util.cleanPath(javaSettings.getJdk().getJavaHome().getPath());
                 }
