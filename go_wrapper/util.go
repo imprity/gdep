@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"go.dw1.io/rapidhash"
 )
 
 func FileExists(name string) (bool, error) {
@@ -136,7 +136,7 @@ func HashFile(filename string) ([]byte, error) {
 	}
 	defer f.Close()
 
-	hasher := sha256.New()
+	hasher := rapidhash.New()
 
 	_, err = io.Copy(hasher, f)
 	if err != nil {
