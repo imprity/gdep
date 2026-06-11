@@ -65,5 +65,4 @@ Create `gdep-settings.json` file next to gdep.exe to change how gdep behaves.
 
 # TODO
 
-- Rotate `gdep-log.txt` of `gdep.exe`.
 - Write tests or something.
