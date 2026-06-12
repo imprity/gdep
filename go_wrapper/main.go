@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,8 +9,11 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 )
 
@@ -19,18 +23,17 @@ type Settings struct {
 }
 
 var ProgramInfo struct {
-	JavaHome string
-	CacheDir string
-	ExecDir  string
-	Cwd      string
+	JavaHome    string
+	JavaVersion int
+	CacheDir    string
+	ExecDir     string
+	Cwd         string
 }
 
 var ErrLogger = log.New(os.Stderr, "[ERROR]: ", log.Lshortfile)
 var InfoLogger = log.New(os.Stderr, "[INFO]: ", log.Lshortfile)
 
 var ErrExpected = errors.New("expected error, nothing to do but to exit")
-
-// TODO: maybe check java version
 
 func main() {
 	err := AppMain()
@@ -198,6 +201,44 @@ func AppMain() error {
 
 		ProgramInfo.JavaHome = toAbsolute(javaHome)
 		ProgramInfo.CacheDir = toAbsolute(cacheDir)
+	}
+
+	// Try to get java version
+	{
+		// TODO: java 1 - 8 reports their version as
+		//     1.1, 1.2, 1.3 ... 1.8
+		// and so on.
+		//
+		// While from java 9 will report their version as
+		//     9, 9.0.1, 10.0.1 ...
+		// and so on.
+		//
+		// So far, we only care about whether or not java version is higher than java 24.
+		//
+		// But if we were to ever care about differentiating
+		// java versions that are 8 or below, code below will need to be changed.
+		buf := &bytes.Buffer{}
+		javaExe := filepath.Join(ProgramInfo.JavaHome, "bin", "java")
+		cmd := exec.Command(javaExe, "-version")
+		cmd.Stderr = buf
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to get java version: %w", err)
+		}
+		versionStr := buf.String()
+
+		re := regexp.MustCompile(`(?i)version\s"(\d+)`)
+		matches := re.FindStringSubmatch(versionStr)
+		if len(matches) < 2 {
+			return fmt.Errorf("failed to get java version")
+		}
+		match := matches[1]
+
+		versionNumber, err := strconv.ParseInt(match, 10, 32)
+		if err != nil {
+			return fmt.Errorf("failed to get java version: %w", err)
+		}
+
+		ProgramInfo.JavaVersion = int(versionNumber)
 	}
 
 	// create cache dir

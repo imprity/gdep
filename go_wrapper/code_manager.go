@@ -283,9 +283,17 @@ func GetGradleToolingInfoFromJava(projectDir string) (GradleToolingInfo, error) 
 	javaExe := filepath.Join(ProgramInfo.JavaHome, "bin", "java")
 	gdepJarPath := filepath.Join(ProgramInfo.ExecDir, "gdep.jar")
 
+	// read about --enable-native-access=ALL-UNNAMED
+	// here: https://teamdev.com/jxbrowser/blog/native-access-restrictions-in-java-24/
+	if ProgramInfo.JavaVersion >= 24 {
+		args = append(
+			args,
+			"--enable-native-access=ALL-UNNAMED",
+		)
+	}
+
 	args = append(
 		args,
-		// "--enable-native-access=ALL-UNNAMED",
 		fmt.Sprintf("-Dgdep.internal.project.dir=%s", projectDir),
 		"-jar",
 		gdepJarPath,
