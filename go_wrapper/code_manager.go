@@ -54,7 +54,7 @@ func (ps *ProjectSourceCode) GetSourceFiles() []string {
 type GradleToolingInfo struct {
 	ExternalSourceJars       []string `json:"externalSourceJars"`
 	ProjectSourceDirectories []string `json:"projectSourceDirectories"`
-	JdkPath                  *string  `json:"jdkPath"`
+	JdkPaths                 []string `json:"jdkPaths"`
 }
 
 type CachedGradleToolingInfo struct {
@@ -94,8 +94,8 @@ func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
 		}
 
 		// get SourceCode from jdk (if it exists)
-		if info.JdkPath != nil {
-			jdkZipPath := filepath.Join(filepath.Clean(*info.JdkPath), "lib", "src.zip")
+		for _, jdkPath := range info.JdkPaths {
+			jdkZipPath := filepath.Join(filepath.Clean(jdkPath), "lib", "src.zip")
 			jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
 
 			if err != nil {

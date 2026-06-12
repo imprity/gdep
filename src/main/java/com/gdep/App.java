@@ -29,14 +29,15 @@ public class App {
     public static class GradleToolingInfo {
         public Set<String> externalSourceJars;
         public Set<String> projectSourceDirectories;
-        public String jdkPath;
+        public Set<String> jdkPaths;
 
         public GradleToolingInfo() {}
 
-        public GradleToolingInfo(Set<String> externalSourceJars, Set<String> projectSourceDirectories, String jdkPath) {
+        public GradleToolingInfo(
+                Set<String> externalSourceJars, Set<String> projectSourceDirectories, Set<String> jdkPaths) {
             this.externalSourceJars = externalSourceJars;
             this.projectSourceDirectories = projectSourceDirectories;
-            this.jdkPath = jdkPath;
+            this.jdkPaths = jdkPaths;
         }
     }
 
@@ -55,7 +56,7 @@ public class App {
 
         Set<String> externSourceJarPaths = new HashSet<>();
 
-        String jdkPath = null;
+        Set<String> jdkPaths = new HashSet<>();
 
         Set<String> projectSourceDirs = new HashSet<>();
 
@@ -88,21 +89,7 @@ public class App {
                 }
             }
 
-            // try to get jdk path
-            // this is technically wrong since each project could have
-            // different jdk versions
-            //
-            // but I don't think it'd matter too much
-            //
-            // but the correct thing would be to collect java home for every projects
-            try {
-                EclipseJavaSourceSettings javaSettings = project.getJavaSourceSettings();
-                if (javaSettings != null) {
-                    jdkPath = Util.cleanPath(javaSettings.getJdk().getJavaHome().getPath());
-                }
-            } catch (UnsupportedMethodException e) {
-                logger.error("failed to get jdk path", e);
-            }
+            jdkPaths = getJdkPaths(project);
 
             // get project source directories
             // TODO: implement include and exclude patterns if you can
@@ -112,7 +99,7 @@ public class App {
             }
         }
 
-        GradleToolingInfo info = new GradleToolingInfo(externSourceJarPaths, projectSourceDirs, jdkPath);
+        GradleToolingInfo info = new GradleToolingInfo(externSourceJarPaths, projectSourceDirs, jdkPaths);
 
         dslJson.serialize(info, System.out);
 
@@ -154,6 +141,32 @@ public class App {
 
         for (final EclipseProject child : children) {
             getProjectSourceDirsImpl(deps, child);
+        }
+    }
+
+    private static Set<String> getJdkPaths(EclipseProject project) {
+        Set<String> jdkPaths = new HashSet<>();
+        getJdkPathsImpl(jdkPaths, project);
+
+        return jdkPaths;
+    }
+
+    private static void getJdkPathsImpl(Set<String> jdkPaths, EclipseProject project) {
+        try {
+            EclipseJavaSourceSettings javaSettings = project.getJavaSourceSettings();
+            if (javaSettings != null) {
+                String jdkPath =
+                        Util.cleanPath(javaSettings.getJdk().getJavaHome().getPath());
+                jdkPaths.add(jdkPath);
+            }
+        } catch (UnsupportedMethodException e) {
+            // welp, nothing we can do if it's unsupported
+        }
+
+        DomainObjectSet<? extends EclipseProject> children = project.getChildren();
+
+        for (final EclipseProject child : children) {
+            getJdkPathsImpl(jdkPaths, child);
         }
     }
 }
