@@ -22,5 +22,9 @@ mkdir out
 cp ./build/libs/gdep.jar ./out/gdep.jar
 cp ./go_wrapper/gdep ./out/gdep
 
+if [[ "${1-empty}" == "--copy-scripts" ]]; then
+    cp ./scripts_linux/*.sh ./out/
+fi
+
 echo done
 
