@@ -28,6 +28,8 @@ type ExternalSourceCode struct {
 
 	SourceJarPath string
 	SourceJarHash string
+
+	KnownCacheDir string
 }
 
 func (es *ExternalSourceCode) GetSourceDirPath() string {
@@ -150,7 +152,7 @@ func GetGradleToolingInfo(projectDir string, ignoreCache bool) (GradleToolingInf
 	jsonCachePath := GetJsonToolingAPICachePath(hash)
 
 	if !ignoreCache {
-		exists, err := FileExists(jsonCachePath)
+		exists, err := RegularFileExists(jsonCachePath)
 		if err != nil {
 			return GradleToolingInfo{}, err
 		}
@@ -211,55 +213,171 @@ func GetSourceCodeFromJar(sourceJarPath string) (SourceCode, error) {
 
 	var sourceCode ExternalSourceCode
 
-	fileExists, err := FileExists(jsonCachePath)
+	fileExists, err := RegularFileExists(jsonCachePath)
 	if err != nil {
 		return nil, err
 	}
 
-	if fileExists {
-		jsonBytes, err := os.ReadFile(jsonCachePath)
+	if fileExists { // cache file exists, reusing cache
+		sourceCode, err = LoadExternalSourceCodeFromCache(jsonCachePath)
 		if err != nil {
-			return nil, err
-		}
-		err = json.Unmarshal(jsonBytes, &sourceCode)
-		if err != nil {
-			return nil, err
+			ErrLogger.Printf("failed to load cached source code: %s", err)
+			ErrLogger.Printf("falling back to source jar at \"%s\"", sourceJarPath)
+
+			if sourceCode, err = LoadExternalSourceCodeFromJar(sourceJarPath, sourceJarHash, jsonCachePath); err != nil {
+				return nil, err
+			}
 		}
 	} else {
-		sourceDirPath := GetUnzippedSourceDirPath(sourceJarPath, sourceJarHash)
-
-		// unzipping takes fucking forever
-		// atleast log it
-		InfoLogger.Printf("unzipping \"%s\" to \"%s\"", sourceJarPath, sourceDirPath)
-		err = ExtractZip(sourceJarPath, sourceDirPath)
-		if err != nil {
-			return nil, err
-		}
-
-		sourceFiles, err := GetFilesInDirectory(sourceDirPath)
-		if err != nil {
-			return nil, err
-		}
-
-		sourceCode = ExternalSourceCode{
-			SourceDirPath: sourceDirPath,
-			SourceFiles:   sourceFiles,
-			SourceJarPath: sourceJarPath,
-			SourceJarHash: sourceJarHash,
-		}
-
-		jsonBytes, err := json.MarshalIndent(sourceCode, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-
-		err = os.WriteFile(jsonCachePath, jsonBytes, 0664)
-		if err != nil {
+		if sourceCode, err = LoadExternalSourceCodeFromJar(sourceJarPath, sourceJarHash, jsonCachePath); err != nil {
 			return nil, err
 		}
 	}
 
 	return &sourceCode, nil
+}
+
+func LoadExternalSourceCodeFromCache(jsonCachePath string) (ExternalSourceCode, error) {
+	var sourceCode ExternalSourceCode
+
+	jsonBytes, err := os.ReadFile(jsonCachePath)
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	err = json.Unmarshal(jsonBytes, &sourceCode)
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	// cached ExternalSourceCode's KnownCacheDir doesn't match with actual ProgramInfo.CacheDir.
+	// meaning cache directory was moved after the cache was created.
+	// so we need to 'repair' the entries in cached sourceCode
+	// and resave it.
+	if sourceCode.KnownCacheDir != ProgramInfo.CacheDir {
+		newSourceFiles := make([]string, len(sourceCode.SourceFiles))
+
+		for i, file := range sourceCode.SourceFiles {
+			if !strings.HasPrefix(file, sourceCode.KnownCacheDir) {
+				return ExternalSourceCode{}, fmt.Errorf(
+					"cached file \"%s\" doesn't start with known cache dir \"%s\"",
+					file, sourceCode.KnownCacheDir,
+				)
+			}
+
+			relPath, err := filepath.Rel(sourceCode.KnownCacheDir, file)
+			if err != nil {
+				return ExternalSourceCode{}, err
+			}
+
+			newPath := filepath.Join(ProgramInfo.CacheDir, relPath)
+
+			newSourceFiles[i] = newPath
+		}
+
+		// same with dirs
+		var newSourceDirPath string
+		{
+			if !strings.HasPrefix(sourceCode.SourceDirPath, sourceCode.KnownCacheDir) {
+				return ExternalSourceCode{}, fmt.Errorf(
+					"cached dir \"%s\" doesn't start with known cache dir \"%s\"",
+					sourceCode.SourceDirPath, sourceCode.KnownCacheDir,
+				)
+			}
+
+			relPath, err := filepath.Rel(sourceCode.KnownCacheDir, sourceCode.SourceDirPath)
+			if err != nil {
+				return ExternalSourceCode{}, err
+			}
+
+			newSourceDirPath = filepath.Join(ProgramInfo.CacheDir, relPath)
+		}
+
+		// update source code
+		sourceCode.SourceFiles = newSourceFiles
+		sourceCode.SourceDirPath = newSourceDirPath
+		sourceCode.KnownCacheDir = ProgramInfo.CacheDir
+
+		// update cache in the file
+		saveErrMsg := fmt.Sprintf("failed to update external source code to cache \"%s\"", jsonCachePath)
+		jsonBytes, err := json.MarshalIndent(sourceCode, "", "  ")
+		if err != nil {
+			return ExternalSourceCode{}, fmt.Errorf("%s: %w", saveErrMsg, err)
+		}
+
+		err = os.WriteFile(jsonCachePath, jsonBytes, 0664)
+		if err != nil {
+			return ExternalSourceCode{}, fmt.Errorf("%s: %w", saveErrMsg, err)
+		}
+	}
+
+	return sourceCode, nil
+}
+
+func LoadExternalSourceCodeFromJar(
+	sourceJarPath,
+	sourceJarHash,
+	jsonCachePath string,
+) (ExternalSourceCode, error) {
+	sourceDirPath := GetUnzippedSourceDirPath(sourceJarPath, sourceJarHash)
+
+	// if sourceDirPath already exists, we delete it
+	{
+		someFile, err := FileExists(sourceDirPath)
+
+		if err != nil {
+			return ExternalSourceCode{}, err
+		}
+
+		if someFile != nil {
+			if !someFile.IsDir() {
+				return ExternalSourceCode{}, fmt.Errorf("tried to unzip at \"%s\" but encountered a file. considered deleting it but something other than a directory exists there", sourceDirPath)
+			}
+
+			InfoLogger.Printf("trying to unzip source code at \"%s\" but a directory is already there. deleting it", sourceDirPath)
+
+			err := os.RemoveAll(sourceDirPath)
+			if err != nil {
+				return ExternalSourceCode{}, err
+			}
+		}
+	}
+
+	// unzipping takes fucking forever
+	// atleast log it
+	InfoLogger.Printf("unzipping \"%s\" to \"%s\"", sourceJarPath, sourceDirPath)
+	err := ExtractZip(sourceJarPath, sourceDirPath)
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	sourceFiles, err := GetFilesInDirectory(sourceDirPath)
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	var sourceCode ExternalSourceCode
+
+	sourceCode = ExternalSourceCode{
+		SourceDirPath: sourceDirPath,
+		SourceFiles:   sourceFiles,
+		SourceJarPath: sourceJarPath,
+		SourceJarHash: sourceJarHash,
+
+		KnownCacheDir: ProgramInfo.CacheDir,
+	}
+
+	jsonBytes, err := json.MarshalIndent(sourceCode, "", "  ")
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	err = os.WriteFile(jsonCachePath, jsonBytes, 0664)
+	if err != nil {
+		return ExternalSourceCode{}, err
+	}
+
+	return sourceCode, nil
 }
 
 func LoadGradleToolingInfoFromJsonCache(jsonCachePath string) (CachedGradleToolingInfo, error) {

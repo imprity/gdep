@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-func FileExists(name string) (bool, error) {
+func RegularFileExists(name string) (bool, error) {
 	info, err := os.Stat(name)
 
 	if err == nil {
@@ -42,6 +42,23 @@ func DirExists(name string) (bool, error) {
 		return false, nil
 	} else {
 		return false, err
+	}
+}
+
+// Checks if file exists.
+// It file exists, return a fs.FileInfo.
+// Else, returns nil.
+//
+// Returns non nil error  if something went wrong while trying to check.
+func FileExists(name string) (fs.FileInfo, error) {
+	info, err := os.Stat(name)
+
+	if err == nil {
+		return info, nil
+	} else if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else {
+		return nil, err
 	}
 }
 
