@@ -16,6 +16,9 @@ type Command interface {
 
 	ParseArgs(args []string) error
 
+	// Returns whether or not this command needs source code
+	NeedsSourceCodes() bool
+
 	Run(sourceCodes []SourceCode) error
 }
 
@@ -36,6 +39,10 @@ func (d *DirsCommand) GetDescription() string {
 
 func (d *DirsCommand) ParseArgs(args []string) error {
 	return GetDefaultFlagSet(d).Parse(args)
+}
+
+func (d *DirsCommand) NeedsSourceCodes() bool {
+	return true
 }
 
 func (d *DirsCommand) Run(sourceCodes []SourceCode) error {
@@ -67,6 +74,10 @@ func (f *FilesCommand) GetDescription() string {
 
 func (f *FilesCommand) ParseArgs(args []string) error {
 	return GetDefaultFlagSet(f).Parse(args)
+}
+
+func (f *FilesCommand) NeedsSourceCodes() bool {
+	return true
 }
 
 func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
@@ -121,6 +132,10 @@ func (p *PackCommand) ParseArgs(args []string) error {
 	p.ClassName = strings.TrimSpace(args[0])
 
 	return nil
+}
+
+func (p *PackCommand) NeedsSourceCodes() bool {
+	return true
 }
 
 func (p *PackCommand) Run(sourceCodes []SourceCode) error {
@@ -186,6 +201,38 @@ func (p *PackCommand) Run(sourceCodes []SourceCode) error {
 	for i := 0; i < min(len(pathAndScores), int(p.CandidateCount)); i++ {
 		ps := pathAndScores[i]
 		fmt.Println(ps.Path)
+	}
+
+	return nil
+}
+
+// ==============================
+// clean
+// ==============================
+
+type CleanCommand struct {
+}
+
+func (d *CleanCommand) GetName() string {
+	return "clean"
+}
+
+func (d *CleanCommand) GetDescription() string {
+	return "delete cache directory"
+}
+
+func (d *CleanCommand) ParseArgs(args []string) error {
+	return GetDefaultFlagSet(d).Parse(args)
+}
+
+func (d *CleanCommand) NeedsSourceCodes() bool {
+	return false
+}
+
+func (d *CleanCommand) Run(sourceCodes []SourceCode) error {
+	err := os.RemoveAll(ProgramInfo.CacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to delete cache dir \"%s\": %w", ProgramInfo.CacheDir, err)
 	}
 
 	return nil

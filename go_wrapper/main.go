@@ -50,11 +50,14 @@ func main() {
 func AppMain() error {
 	args := os.Args[1:]
 
+	// ================
 	// init commands
+	// ================
 	commands := []Command{
 		&DirsCommand{},
 		&FilesCommand{},
 		&PackCommand{},
+		&CleanCommand{},
 	}
 
 	// init flagset
@@ -249,14 +252,21 @@ func AppMain() error {
 		}
 	}
 
-	sourceCodes, err := GetSourceCodes(ignoreCache)
-	if err != nil {
-		return fmt.Errorf("failed to get source codes: %w", err)
-	}
+	if !toRun.NeedsSourceCodes() {
+		err := toRun.Run(nil)
+		if err != nil {
+			return fmt.Errorf("failed to execute command \"%s\": %w", toRun.GetName(), err)
+		}
+	} else {
+		sourceCodes, err := GetSourceCodes(ignoreCache)
+		if err != nil {
+			return fmt.Errorf("failed to get source codes: %w", err)
+		}
 
-	err = toRun.Run(sourceCodes)
-	if err != nil {
-		return fmt.Errorf("failed to execute command \"%s\": %w", toRun.GetName(), err)
+		err = toRun.Run(sourceCodes)
+		if err != nil {
+			return fmt.Errorf("failed to execute command \"%s\": %w", toRun.GetName(), err)
+		}
 	}
 
 	return nil
