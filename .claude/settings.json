@@ -1,9 +1,11 @@
 {
   "permissions": {
-    "allow": [
-      "Read",
+    "ask": [
       "Edit",
       "Write"
+    ],
+    "allow": [
+      "Read"
     ],
     "deny": [
       "Bash"
