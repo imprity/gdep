@@ -24,6 +24,10 @@ mkdir out
 copy /Y build\libs\gdep.jar out\gdep.jar
 copy /Y go_wrapper\gdep.exe out\gdep.exe
 
+if "%~1" EQU "--copy-scripts" (
+	copy /Y scripts_windows\*.bat out\
+)
+
 echo done
 
 :END
