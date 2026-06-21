@@ -30,6 +30,10 @@ var ProgramInfo struct {
 	Cwd         string
 }
 
+var ProgramOptions struct {
+	Delimiter string
+}
+
 var ErrLogger = log.New(os.Stderr, "[ERROR]: ", log.Lshortfile)
 var InfoLogger = log.New(os.Stderr, "[INFO]: ", log.Lshortfile)
 
@@ -64,13 +68,15 @@ func AppMain() error {
 	flagset := flag.NewFlagSet("main", flag.ExitOnError)
 
 	// ====================
-	// FLAGS
+	// FLAGS & OPTIONS
 	// ====================
 	var pprofFileName string
 	var ignoreCache bool
 
 	flagset.StringVar(&pprofFileName, "pprof", "", "write cpu profile to given file")
 	flagset.BoolVar(&ignoreCache, "ignore-cache", false, "ignore Gradle Tooling API cache")
+
+	flagset.StringVar(&ProgramOptions.Delimiter, "delimiter", "", "delimiter for a list ouput; uses Go's escaping rule (\\n \\t); default is new line")
 	// ====================
 
 	flagset.Usage = getFlagUsageFunc(commands, flagset)
@@ -206,7 +212,7 @@ func AppMain() error {
 		ProgramInfo.CacheDir = toAbsolute(cacheDir)
 	}
 
-	// Try to get java version
+	// JavaVersion
 	{
 		// TODO: java 1 - 8 reports their version as
 		//     1.1, 1.2, 1.3 ... 1.8
@@ -243,6 +249,24 @@ func AppMain() error {
 
 		ProgramInfo.JavaVersion = int(versionNumber)
 	}
+	// ===========================
+	// setting up ProgramOptions
+	// ===========================
+
+	// Delimiter
+	{
+		if ProgramOptions.Delimiter == "" {
+			ProgramOptions.Delimiter = "\n"
+		} else {
+			unquoted, err := strconv.Unquote(`"` + ProgramOptions.Delimiter + `"`)
+			if err != nil {
+				return fmt.Errorf("failed to parse delimiter: \"%s\": %w", ProgramOptions.Delimiter, err)
+			}
+			ProgramOptions.Delimiter = unquoted
+		}
+	}
+
+	// ===========================
 
 	// create cache dir
 	{

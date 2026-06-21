@@ -50,9 +50,13 @@ func (d *DirsCommand) Run(sourceCodes []SourceCode) error {
 		return strings.Compare(a.GetSourceDirPath(), b.GetSourceDirPath())
 	})
 
+	lp := NewLinePrinter(ProgramOptions.Delimiter)
+
 	for _, sc := range sourceCodes {
-		fmt.Println(sc.GetSourceDirPath())
+		lp.PrintString(sc.GetSourceDirPath())
 	}
+
+	fmt.Print(lp.String())
 
 	return nil
 }
@@ -89,9 +93,13 @@ func (f *FilesCommand) Run(sourceCodes []SourceCode) error {
 
 	slices.Sort(srcFiles)
 
+	lp := NewLinePrinter(ProgramOptions.Delimiter)
+
 	for _, file := range srcFiles {
-		fmt.Println(file)
+		lp.PrintString(file)
 	}
+
+	fmt.Print(lp.String())
 
 	return nil
 }
@@ -198,10 +206,14 @@ func (p *PackCommand) Run(sourceCodes []SourceCode) error {
 		}
 	})
 
+	lp := NewLinePrinter(ProgramOptions.Delimiter)
+
 	for i := 0; i < min(len(pathAndScores), int(p.CandidateCount)); i++ {
 		ps := pathAndScores[i]
-		fmt.Println(ps.Path)
+		lp.PrintString(ps.Path)
 	}
+
+	fmt.Print(lp.String())
 
 	return nil
 }
