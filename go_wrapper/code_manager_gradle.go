@@ -40,7 +40,7 @@ func GetGradleToolingInfo(projectDir string, ignoreCache bool) (GradleToolingInf
 	}
 
 	// check cached json file of GradleToolingInfo
-	jsonCachePath := GetJsonToolingAPICachePath(hash)
+	jsonCachePath := GetJsonGradleToolingAPICachePath(hash)
 
 	if !ignoreCache {
 		exists, err := RegularFileExists(jsonCachePath)
@@ -125,6 +125,7 @@ func GetGradleToolingInfoFromJava(projectDir string) (GradleToolingInfo, error) 
 	args = append(
 		args,
 		fmt.Sprintf("-Dgdep.internal.project.dir=%s", projectDir),
+		"-Dgdep.internal.project.type=gradle",
 		"-jar",
 		gdepJarPath,
 	)
@@ -162,7 +163,7 @@ func GetGradleToolingInfoFromJava(projectDir string) (GradleToolingInfo, error) 
 // helper fucntions
 // ============================
 
-func GetJsonToolingAPICachePath(fingerPrintHash string) string {
+func GetJsonGradleToolingAPICachePath(fingerPrintHash string) string {
 	fileName := fingerPrintHash + ".gradle-cache.json"
 
 	return filepath.Join(ProgramInfo.CacheDir, fileName)

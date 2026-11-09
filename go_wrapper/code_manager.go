@@ -51,18 +51,27 @@ func (ps *ProjectSourceCode) GetSourceFiles() []string {
 }
 
 func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
-	var projectDir string
+	var gradleProjectDir string
+	var mavenProjectDir string
+
 	var inGradleProject bool
+	var inMavenProject bool
+
 	var err error
 
 	// try to get project directory
-	projectDir, inGradleProject, err = WalkUpToGradleProjectDir()
+	gradleProjectDir, inGradleProject, err = WalkUpToGradleProjectDir()
+	if err != nil {
+		return nil, err
+	}
+
+	mavenProjectDir, inMavenProject, err = WalkUpToMavenProjectDir()
 	if err != nil {
 		return nil, err
 	}
 
 	if inGradleProject { // we are in gradle project
-		info, err := GetGradleToolingInfo(projectDir, ignoreCache)
+		info, err := GetGradleToolingInfo(gradleProjectDir, ignoreCache)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +114,53 @@ func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
 		}
 
 		return sourceCodes, nil
-	} else { // we are not in gradle project
+	} else if inMavenProject {
+		info, err := GetMavenInfo(mavenProjectDir, ignoreCache)
+		if err != nil {
+			return nil, err
+		}
+
+		var sourceCodes []SourceCode
+
+		// get SourceCode from externSourceJarPaths
+		for _, jarPath := range info.ExternalSourceJars {
+			sc, err := GetSourceCodeFromJar(jarPath)
+			if err != nil {
+				return nil, err
+			}
+			sourceCodes = append(sourceCodes, sc)
+		}
+
+		// TODO: below are not supported in maven project yet
+
+		// // get SourceCode from jdk (if it exists)
+		// for _, jdkPath := range info.JdkPaths {
+		// 	jdkZipPath := filepath.Join(filepath.Clean(jdkPath), "lib", "src.zip")
+		// 	jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
+		//
+		// 	if err != nil {
+		// 		ErrLogger.Println(err)
+		// 	} else {
+		// 		sourceCodes = append(sourceCodes, jarSourceCode)
+		// 	}
+		// }
+		//
+		// // get SourceCode from projectSourceDirs
+		// for _, srcDir := range info.ProjectSourceDirectories {
+		// 	files, err := GetFilesInDirectory(srcDir)
+		// 	if err != nil {
+		// 		ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
+		// 		continue
+		// 	}
+		//
+		// 	sourceCodes = append(sourceCodes, &ProjectSourceCode{
+		// 		SourceDirPath: srcDir,
+		// 		SourceFiles:   files,
+		// 	})
+		// }
+
+		return sourceCodes, nil
+	} else { // we are not in gradle, nor maven project
 		// then just try to get zipped java src from jdk
 		jdkZipPath := filepath.Join(ProgramInfo.JavaHome, "lib", "src.zip")
 		jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
