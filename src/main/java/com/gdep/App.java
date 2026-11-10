@@ -3,10 +3,9 @@ package com.gdep;
 import com.dslplatform.json.DslJson;
 import com.dslplatform.json.runtime.Settings;
 import java.io.IOException;
-import java.util.*;
+import org.eclipse.aether.collection.DependencyCollectionException;
 import org.eclipse.aether.resolution.ArtifactDescriptorException;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
-import org.eclipse.aether.resolution.DependencyResolutionException;
 import org.eclipse.aether.resolution.VersionResolutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +16,7 @@ public class App {
     private static final Logger logger = LoggerFactory.getLogger(App.class);
 
     public static void main(String[] args)
-            throws IOException, VersionResolutionException, DependencyResolutionException, ArtifactResolutionException,
+            throws IOException, VersionResolutionException, DependencyCollectionException, ArtifactResolutionException,
                     ArtifactDescriptorException {
         final String projectDir = System.getProperty("gdep.internal.project.dir");
         final String projectType = System.getProperty("gdep.internal.project.type");
