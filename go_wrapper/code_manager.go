@@ -144,20 +144,20 @@ func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
 		// 		sourceCodes = append(sourceCodes, jarSourceCode)
 		// 	}
 		// }
-		//
-		// // get SourceCode from projectSourceDirs
-		// for _, srcDir := range info.ProjectSourceDirectories {
-		// 	files, err := GetFilesInDirectory(srcDir)
-		// 	if err != nil {
-		// 		ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
-		// 		continue
-		// 	}
-		//
-		// 	sourceCodes = append(sourceCodes, &ProjectSourceCode{
-		// 		SourceDirPath: srcDir,
-		// 		SourceFiles:   files,
-		// 	})
-		// }
+
+		// get SourceCode from projectSourceDirs
+		for _, srcDir := range info.ProjectSourceDirectories {
+			files, err := GetFilesInDirectory(srcDir)
+			if err != nil {
+				ErrLogger.Printf("failed to get files in \"%s\": %v", srcDir, err)
+				continue
+			}
+
+			sourceCodes = append(sourceCodes, &ProjectSourceCode{
+				SourceDirPath: srcDir,
+				SourceFiles:   files,
+			})
+		}
 
 		return sourceCodes, nil
 	} else { // we are not in gradle, nor maven project

@@ -14,7 +14,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Resource;
 import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
@@ -46,6 +48,8 @@ public class MavenHandler {
 
         Set<String> externSourceJarPaths = new HashSet<>();
 
+        Set<String> projectSourceDirs = new HashSet<>();
+
         // =================================
         // DO MAVEN SHIT
         // =================================
@@ -59,6 +63,8 @@ public class MavenHandler {
             // =================================
             MavenModelReader modelReader = new MavenModelReader(context);
             List<Model> models = getModels(modelReader, pomPath);
+
+            projectSourceDirs = getProjectSourceDirsFromModels(models);
 
             // =================================
             // Resolve models' dependencies and collect transient dependencies
@@ -122,7 +128,7 @@ public class MavenHandler {
             }
         }
 
-        return new MavenInfo(externSourceJarPaths);
+        return new MavenInfo(externSourceJarPaths, projectSourceDirs);
     }
 
     private static List<Model> getModels(MavenModelReader modelReader, Path rootPomPath)
@@ -187,6 +193,65 @@ public class MavenHandler {
         }
 
         return depArtifactIds;
+    }
+
+    private static boolean isPathDirectory(String path) {
+        if (Util.isStringBlank(path)) {
+            return false;
+        }
+
+        return Files.isDirectory(Paths.get(path));
+    }
+
+    private static Set<String> getProjectSourceDirsFromModels(List<Model> models) {
+        // TODO: Maven reports directories that don't exist as resource directories
+        //
+        // For now, we filter out paths that don't exist
+        //
+        // But consider this situation
+        //
+        // 1. User doesn't have /src/test/resources directory
+        // 2. User runs gdep, and cache gets saved with no \src\test\resources entry
+        // 3. User creates /src/test/resources later
+        //
+        // In this case, cache becomes wrong and it'll stay wrong until cache expires
+        //
+        // Of course, go-wrapper handles the case when the paths reported by java don't actually exist
+        // but it logs error everytime which boils my piss
+        //
+        // So we will continue to filter none existing paths until I find a way to log shits silently in go-wrapper side
+
+        Set<String> projectSourceDirs = new HashSet<>();
+
+        for (final Model model : models) {
+            Build build = model.getBuild();
+
+            String sourceDirectory = build.getSourceDirectory();
+            if (isPathDirectory(sourceDirectory)) {
+                projectSourceDirs.add(Util.cleanPath(sourceDirectory));
+            }
+
+            String testSourceDirectory = Util.cleanPath(build.getTestSourceDirectory());
+            if (isPathDirectory(testSourceDirectory)) {
+                projectSourceDirs.add(Util.cleanPath(testSourceDirectory));
+            }
+
+            for (final Resource resource : build.getResources()) {
+                String dir = resource.getDirectory();
+                if (isPathDirectory(dir)) {
+                    projectSourceDirs.add(Util.cleanPath(dir));
+                }
+            }
+
+            for (final Resource resource : build.getTestResources()) {
+                String dir = Util.cleanPath(resource.getDirectory());
+                if (isPathDirectory(dir)) {
+                    projectSourceDirs.add(Util.cleanPath(dir));
+                }
+            }
+        }
+
+        return projectSourceDirs;
     }
 
     private static ArtifactResult getArtifact(Context context, String coordinate) throws ArtifactResolutionException {

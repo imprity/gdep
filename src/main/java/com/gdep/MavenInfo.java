@@ -6,10 +6,12 @@ import java.util.*;
 @CompiledJson(onUnknown = CompiledJson.Behavior.FAIL)
 public class MavenInfo {
     public Set<String> externalSourceJars;
+    public Set<String> projectSourceDirectories;
 
     public MavenInfo() {}
 
-    public MavenInfo(Set<String> externalSourceJars) {
+    public MavenInfo(Set<String> externalSourceJars, Set<String> projectSourceDirectories) {
         this.externalSourceJars = externalSourceJars;
+        this.projectSourceDirectories = projectSourceDirectories;
     }
 }

@@ -13,7 +13,8 @@ import (
 )
 
 type MavenInfo struct {
-	ExternalSourceJars []string `json:"externalSourceJars"`
+	ExternalSourceJars       []string `json:"externalSourceJars"`
+	ProjectSourceDirectories []string `json:"projectSourceDirectories"`
 }
 
 type CachedMavenInfo struct {
