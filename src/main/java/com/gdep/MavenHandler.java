@@ -12,7 +12,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
@@ -23,6 +25,8 @@ import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.collection.DependencyCollectionException;
 import org.eclipse.aether.graph.Dependency;
 import org.eclipse.aether.graph.DependencyNode;
+import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.repository.RepositoryPolicy;
 import org.eclipse.aether.resolution.ArtifactDescriptorException;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
@@ -64,66 +68,14 @@ public class MavenHandler {
             MavenModelReader modelReader = new MavenModelReader(context);
             List<Model> models = getModels(modelReader, pomPath);
 
-            projectSourceDirs = getProjectSourceDirsFromModels(models);
+            for (Model model : models) {
+                MavenInfo info = getMavenInfoFromModel(context, model);
 
-            // =================================
-            // Resolve models' dependencies and collect transient dependencies
-            // =================================
-            CollectRequest collectRequest = new CollectRequest();
-            collectRequest.setRepositories(context.remoteRepositories());
-
-            for (final String depArtifactId : getDependencyArtifactIdsFromModels(models)) {
-                Artifact depArtifact = new DefaultArtifact(depArtifactId);
-                Dependency dep = new Dependency(depArtifact, null);
-                collectRequest.addDependency(dep);
-            }
-
-            DependencyNode rootNode = context.repositorySystem()
-                    .collectDependencies(context.repositorySystemSession(), collectRequest)
-                    .getRoot();
-
-            NodeListGenerator nodeListGenerator = new NodeListGenerator();
-            PreorderDependencyNodeConsumerVisitor visitor =
-                    new PreorderDependencyNodeConsumerVisitor(nodeListGenerator);
-            rootNode.accept(visitor);
-
-            // =================================
-            // Generate source maven coordinates
-            // =================================
-            HashSet<String> sourceCoords = new HashSet<>();
-
-            for (final DependencyNode node : nodeListGenerator.getNodes()) {
-                Artifact artifact = node.getArtifact();
-
-                if (artifact == null) {
-                    continue;
+                for (String jarPath : info.externalSourceJars) {
+                    externSourceJarPaths.add(jarPath);
                 }
-
-                String sourceCoord = artifact.getGroupId() + ":" + artifact.getArtifactId()
-                        + ":" + "jar"
-                        + ":" + "sources"
-                        + ":" + artifact.getVersion();
-
-                sourceCoords.add(sourceCoord);
-            }
-
-            // =================================
-            // Get source jar artifacts
-            // =================================
-
-            // TODO: make this parallel
-            for (final String coord : sourceCoords) {
-                logger.info("downloading {}", coord);
-
-                try {
-                    ArtifactResult res = getArtifact(context, coord);
-
-                    Artifact artifact = res.getArtifact();
-
-                    externSourceJarPaths.add(Util.cleanPath(artifact.getPath()).toString());
-
-                } catch (ArtifactResolutionException err) {
-                    logger.error("failed to download {}", coord, err);
+                for (String dir : info.projectSourceDirectories) {
+                    projectSourceDirs.add(dir);
                 }
             }
         }
@@ -181,15 +133,150 @@ public class MavenHandler {
         }
     }
 
-    private static Set<String> getDependencyArtifactIdsFromModels(List<Model> models) {
+    private static MavenInfo getMavenInfoFromModel(Context context, Model model) throws DependencyCollectionException {
+        // =================================
+        // Get project source directories
+        // =================================
+        Set<String> projectSourceDirs = getProjectSourceDirsFromModel(model);
+
+        Set<String> externSourceJarPaths = new HashSet<>();
+
+        // =================================
+        // get model's RemoteRepository s
+        // =================================
+        List<RemoteRepository> remoteRepos = getRemoteRepositoriesFromModel(context, model);
+
+        // =================================
+        // Resolve model`s dependencies and collect transient dependencies
+        // =================================
+        CollectRequest collectRequest = new CollectRequest();
+        collectRequest.setRepositories(remoteRepos);
+
+        for (final String depArtifactId : getDependencyArtifactIdsFromModel(model)) {
+            Artifact depArtifact = new DefaultArtifact(depArtifactId);
+            Dependency dep = new Dependency(depArtifact, null);
+            collectRequest.addDependency(dep);
+        }
+
+        DependencyNode rootNode = context.repositorySystem()
+                .collectDependencies(context.repositorySystemSession(), collectRequest)
+                .getRoot();
+
+        NodeListGenerator nodeListGenerator = new NodeListGenerator();
+        PreorderDependencyNodeConsumerVisitor visitor = new PreorderDependencyNodeConsumerVisitor(nodeListGenerator);
+        rootNode.accept(visitor);
+
+        // =================================
+        // Generate source maven coordinates
+        // =================================
+        HashSet<String> sourceCoords = new HashSet<>();
+
+        for (final DependencyNode node : nodeListGenerator.getNodes()) {
+            Artifact artifact = node.getArtifact();
+
+            if (artifact == null) {
+                continue;
+            }
+
+            String sourceCoord = artifact.getGroupId() + ":" + artifact.getArtifactId()
+                    + ":" + "jar"
+                    + ":" + "sources"
+                    + ":" + artifact.getVersion();
+
+            sourceCoords.add(sourceCoord);
+        }
+
+        // =================================
+        // Get source jar artifacts
+        // =================================
+
+        // TODO: make this parallel
+        for (final String coord : sourceCoords) {
+            logger.info("downloading {}", coord);
+
+            try {
+                ArtifactResult res = getArtifact(context, remoteRepos, coord);
+
+                Artifact artifact = res.getArtifact();
+
+                externSourceJarPaths.add(Util.cleanPath(artifact.getPath()).toString());
+
+            } catch (ArtifactResolutionException err) {
+                logger.error("failed to download {}", coord, err);
+            }
+        }
+
+        return new MavenInfo(externSourceJarPaths, projectSourceDirs);
+    }
+
+    private static String getRepoHashKey(RemoteRepository repo) {
+        String url = repo.getUrl();
+        while (url.endsWith("/")) {
+            url = url.substring(0, url.length() - 1);
+        }
+        return repo.getId() + "\0" + url;
+    }
+
+    private static List<RemoteRepository> getRemoteRepositoriesFromModel(Context context, Model model) {
+        // convert pom.xml repositories, then apply mirrors, proxies and auth from settings.xml
+        List<RemoteRepository> rawPomRepos = new ArrayList<>();
+        for (org.apache.maven.model.Repository mavenRepo : model.getRepositories()) {
+            rawPomRepos.add(toRemoteRepository(mavenRepo));
+        }
+
+        List<RemoteRepository> pomRepos =
+                context.repositorySystem().newResolutionRepositories(context.repositorySystemSession(), rawPomRepos);
+
+        Map<String, RemoteRepository> repoMap = new LinkedHashMap<>();
+
+        // context repos come first, they are dominant (like settings.xml in maven)
+        // order matters, resolver tries repositories in order
+        for (RemoteRepository repo : context.remoteRepositories()) {
+            repoMap.putIfAbsent(getRepoHashKey(repo), repo);
+        }
+        for (RemoteRepository repo : pomRepos) {
+            repoMap.putIfAbsent(getRepoHashKey(repo), repo);
+        }
+
+        return new ArrayList<>(repoMap.values());
+    }
+
+    // copied from org.apache.maven.repository.internal.ArtifactDescriptorUtils (maven-resolver-provider)
+    // since that one is in an internal package
+    private static RemoteRepository toRemoteRepository(org.apache.maven.model.Repository repository) {
+        RemoteRepository.Builder builder =
+                new RemoteRepository.Builder(repository.getId(), repository.getLayout(), repository.getUrl());
+        builder.setSnapshotPolicy(toRepositoryPolicy(repository.getSnapshots()));
+        builder.setReleasePolicy(toRepositoryPolicy(repository.getReleases()));
+        return builder.build();
+    }
+
+    // copied from org.apache.maven.repository.internal.ArtifactDescriptorUtils (maven-resolver-provider)
+    // since that one is in an internal package
+    private static RepositoryPolicy toRepositoryPolicy(org.apache.maven.model.RepositoryPolicy policy) {
+        boolean enabled = true;
+        String checksums = RepositoryPolicy.CHECKSUM_POLICY_WARN;
+        String updates = RepositoryPolicy.UPDATE_POLICY_DAILY;
+
+        if (policy != null) {
+            enabled = policy.isEnabled();
+            if (policy.getUpdatePolicy() != null) {
+                updates = policy.getUpdatePolicy();
+            }
+            if (policy.getChecksumPolicy() != null) {
+                checksums = policy.getChecksumPolicy();
+            }
+        }
+
+        return new RepositoryPolicy(enabled, updates, checksums);
+    }
+
+    private static Set<String> getDependencyArtifactIdsFromModel(Model model) {
         Set<String> depArtifactIds = new HashSet<>();
 
-        for (final Model model : models) {
-            for (final org.apache.maven.model.Dependency mavenDep : model.getDependencies()) {
-                String depArtifactId =
-                        mavenDep.getGroupId() + ":" + mavenDep.getArtifactId() + ":" + mavenDep.getVersion();
-                depArtifactIds.add(depArtifactId);
-            }
+        for (final org.apache.maven.model.Dependency mavenDep : model.getDependencies()) {
+            String depArtifactId = mavenDep.getGroupId() + ":" + mavenDep.getArtifactId() + ":" + mavenDep.getVersion();
+            depArtifactIds.add(depArtifactId);
         }
 
         return depArtifactIds;
@@ -203,7 +290,7 @@ public class MavenHandler {
         return Files.isDirectory(Paths.get(path));
     }
 
-    private static Set<String> getProjectSourceDirsFromModels(List<Model> models) {
+    private static Set<String> getProjectSourceDirsFromModel(Model model) {
         // TODO: Maven reports directories that don't exist as resource directories
         //
         // For now, we filter out paths that don't exist
@@ -223,40 +310,39 @@ public class MavenHandler {
 
         Set<String> projectSourceDirs = new HashSet<>();
 
-        for (final Model model : models) {
-            Build build = model.getBuild();
+        Build build = model.getBuild();
 
-            String sourceDirectory = build.getSourceDirectory();
-            if (isPathDirectory(sourceDirectory)) {
-                projectSourceDirs.add(Util.cleanPath(sourceDirectory));
+        String sourceDirectory = build.getSourceDirectory();
+        if (isPathDirectory(sourceDirectory)) {
+            projectSourceDirs.add(Util.cleanPath(sourceDirectory));
+        }
+
+        String testSourceDirectory = Util.cleanPath(build.getTestSourceDirectory());
+        if (isPathDirectory(testSourceDirectory)) {
+            projectSourceDirs.add(Util.cleanPath(testSourceDirectory));
+        }
+
+        for (final Resource resource : build.getResources()) {
+            String dir = resource.getDirectory();
+            if (isPathDirectory(dir)) {
+                projectSourceDirs.add(Util.cleanPath(dir));
             }
+        }
 
-            String testSourceDirectory = Util.cleanPath(build.getTestSourceDirectory());
-            if (isPathDirectory(testSourceDirectory)) {
-                projectSourceDirs.add(Util.cleanPath(testSourceDirectory));
-            }
-
-            for (final Resource resource : build.getResources()) {
-                String dir = resource.getDirectory();
-                if (isPathDirectory(dir)) {
-                    projectSourceDirs.add(Util.cleanPath(dir));
-                }
-            }
-
-            for (final Resource resource : build.getTestResources()) {
-                String dir = Util.cleanPath(resource.getDirectory());
-                if (isPathDirectory(dir)) {
-                    projectSourceDirs.add(Util.cleanPath(dir));
-                }
+        for (final Resource resource : build.getTestResources()) {
+            String dir = Util.cleanPath(resource.getDirectory());
+            if (isPathDirectory(dir)) {
+                projectSourceDirs.add(Util.cleanPath(dir));
             }
         }
 
         return projectSourceDirs;
     }
 
-    private static ArtifactResult getArtifact(Context context, String coordinate) throws ArtifactResolutionException {
+    private static ArtifactResult getArtifact(Context context, List<RemoteRepository> repos, String coordinate)
+            throws ArtifactResolutionException {
         ArtifactRequest artifactRequest = new ArtifactRequest();
-        artifactRequest.setRepositories(context.remoteRepositories());
+        artifactRequest.setRepositories(repos);
 
         Artifact depArtifact = new DefaultArtifact(coordinate);
         artifactRequest.setArtifact(depArtifact);
