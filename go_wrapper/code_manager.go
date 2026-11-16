@@ -131,19 +131,25 @@ func GetSourceCodes(ignoreCache bool) ([]SourceCode, error) {
 			sourceCodes = append(sourceCodes, sc)
 		}
 
-		// TODO: below are not supported in maven project yet
-
-		// // get SourceCode from jdk (if it exists)
-		// for _, jdkPath := range info.JdkPaths {
-		// 	jdkZipPath := filepath.Join(filepath.Clean(jdkPath), "lib", "src.zip")
-		// 	jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
+		// get SourceCode from jdk (if it exists)
 		//
-		// 	if err != nil {
-		// 		ErrLogger.Println(err)
-		// 	} else {
-		// 		sourceCodes = append(sourceCodes, jarSourceCode)
-		// 	}
-		// }
+		// if project doesn't use toolchains, maven uses JAVA_HOME
+		// so we fall back to that
+		jdkPaths := info.JdkPaths
+		if len(jdkPaths) == 0 {
+			jdkPaths = []string{ProgramInfo.JavaHome}
+		}
+
+		for _, jdkPath := range jdkPaths {
+			jdkZipPath := filepath.Join(filepath.Clean(jdkPath), "lib", "src.zip")
+			jarSourceCode, err := GetSourceCodeFromJar(jdkZipPath)
+
+			if err != nil {
+				ErrLogger.Println(err)
+			} else {
+				sourceCodes = append(sourceCodes, jarSourceCode)
+			}
+		}
 
 		// get SourceCode from projectSourceDirs
 		for _, srcDir := range info.ProjectSourceDirectories {

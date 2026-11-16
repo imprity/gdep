@@ -7,6 +7,8 @@ import eu.maveniverse.maven.mima.context.Runtimes;
 import eu.maveniverse.maven.mima.extensions.mmr.MavenModelReader;
 import eu.maveniverse.maven.mima.extensions.mmr.ModelRequest;
 import eu.maveniverse.maven.mima.extensions.mmr.ModelResponse;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -15,10 +17,23 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Plugin;
+import org.apache.maven.model.PluginExecution;
 import org.apache.maven.model.Resource;
+import org.apache.maven.toolchain.RequirementMatcher;
+import org.apache.maven.toolchain.RequirementMatcherFactory;
+import org.apache.maven.toolchain.model.PersistedToolchains;
+import org.apache.maven.toolchain.model.ToolchainModel;
+import org.apache.maven.toolchain.model.io.xpp3.MavenToolchainsXpp3Reader;
+import org.codehaus.plexus.interpolation.EnvarBasedValueSource;
+import org.codehaus.plexus.interpolation.InterpolationException;
+import org.codehaus.plexus.interpolation.RegexBasedInterpolator;
+import org.codehaus.plexus.util.xml.Xpp3Dom;
+import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
@@ -54,6 +69,8 @@ public class MavenHandler {
 
         Set<String> projectSourceDirs = new HashSet<>();
 
+        Set<String> jdkPaths = new HashSet<>();
+
         // =================================
         // DO MAVEN SHIT
         // =================================
@@ -68,19 +85,21 @@ public class MavenHandler {
             MavenModelReader modelReader = new MavenModelReader(context);
             List<Model> models = getModels(modelReader, pomPath);
 
-            for (Model model : models) {
-                MavenInfo info = getMavenInfoFromModel(context, model);
+            // =================================
+            // Get jdk toolchains from toolchains.xml
+            // =================================
+            List<ToolchainModel> jdkToolchains = getJdkToolchains(context);
 
-                for (String jarPath : info.externalSourceJars) {
-                    externSourceJarPaths.add(jarPath);
-                }
-                for (String dir : info.projectSourceDirectories) {
-                    projectSourceDirs.add(dir);
-                }
+            for (Model model : models) {
+                MavenInfo info = getMavenInfoFromModel(context, model, jdkToolchains);
+
+                externSourceJarPaths.addAll(info.externalSourceJars);
+                projectSourceDirs.addAll(info.projectSourceDirectories);
+                jdkPaths.addAll(info.jdkPaths);
             }
         }
 
-        return new MavenInfo(externSourceJarPaths, projectSourceDirs);
+        return new MavenInfo(externSourceJarPaths, projectSourceDirs, jdkPaths);
     }
 
     private static List<Model> getModels(MavenModelReader modelReader, Path rootPomPath)
@@ -133,11 +152,17 @@ public class MavenHandler {
         }
     }
 
-    private static MavenInfo getMavenInfoFromModel(Context context, Model model) throws DependencyCollectionException {
+    private static MavenInfo getMavenInfoFromModel(Context context, Model model, List<ToolchainModel> jdkToolchains)
+            throws DependencyCollectionException {
         // =================================
         // Get project source directories
         // =================================
         Set<String> projectSourceDirs = getProjectSourceDirsFromModel(model);
+
+        // =================================
+        // Get jdk paths from toolchains
+        // =================================
+        Set<String> jdkPaths = getJdkPathsFromModel(model, jdkToolchains);
 
         Set<String> externSourceJarPaths = new HashSet<>();
 
@@ -206,7 +231,202 @@ public class MavenHandler {
             }
         }
 
-        return new MavenInfo(externSourceJarPaths, projectSourceDirs);
+        return new MavenInfo(externSourceJarPaths, projectSourceDirs, jdkPaths);
+    }
+
+    // =================================
+    // JDK toolchains
+    // =================================
+    //
+    // Maven doesn't report which JDK a project uses.
+    // By default it's whatever JDK runs mvn (JAVA_HOME), which go-wrapper falls back to.
+    //
+    // But if project uses toolchains (maven-toolchains-plugin, or maven-compiler-plugin's jdkToolchain),
+    // maven picks a JDK from toolchains.xml that matches the requirements.
+    // So we do the same thing here.
+    //
+    // NOTE: newer maven-toolchains-plugin (3.2.0+) can also discover JDKs without toolchains.xml
+    // (select-jdk-toolchain goal), that's not supported
+
+    private static List<ToolchainModel> getJdkToolchains(Context context) {
+        // user toolchains come first, just like maven
+        List<Path> toolchainsFiles = new ArrayList<>();
+        toolchainsFiles.add(context.mavenUserHome().toolchainsXml());
+        if (context.mavenSystemHome() != null) {
+            toolchainsFiles.add(context.mavenSystemHome().toolchainsXml());
+        }
+
+        List<ToolchainModel> jdkToolchains = new ArrayList<>();
+
+        for (Path toolchainsFile : toolchainsFiles) {
+            if (!Files.isRegularFile(toolchainsFile)) {
+                continue;
+            }
+
+            try (InputStream in = Files.newInputStream(toolchainsFile)) {
+                PersistedToolchains toolchains = new MavenToolchainsXpp3Reader().read(in, false);
+
+                for (ToolchainModel toolchain : toolchains.getToolchains()) {
+                    if ("jdk".equals(toolchain.getType())) {
+                        jdkToolchains.add(toolchain);
+                    }
+                }
+            } catch (IOException | XmlPullParserException e) {
+                logger.error("failed to read {}", toolchainsFile, e);
+            }
+        }
+
+        return jdkToolchains;
+    }
+
+    private static Set<String> getJdkPathsFromModel(Model model, List<ToolchainModel> jdkToolchains) {
+        Set<String> jdkPaths = new HashSet<>();
+
+        for (Map<String, String> requirements : getJdkRequirementsFromModel(model)) {
+            // maven picks the first matching toolchain
+            String jdkHome = null;
+
+            for (ToolchainModel toolchain : jdkToolchains) {
+                if (!toolchainMatchesRequirements(toolchain, requirements)) {
+                    continue;
+                }
+
+                jdkHome = getToolchainJdkHome(toolchain);
+                if (jdkHome != null) {
+                    break;
+                }
+            }
+
+            if (jdkHome == null) {
+                logger.warn(
+                        "{}:{} requires jdk toolchain {}, but no matching toolchain was found",
+                        model.getGroupId(),
+                        model.getArtifactId(),
+                        requirements);
+                continue;
+            }
+
+            jdkPaths.add(Util.cleanPath(jdkHome));
+        }
+
+        return jdkPaths;
+    }
+
+    private static final String TOOLCHAINS_PLUGIN_KEY = "org.apache.maven.plugins:maven-toolchains-plugin";
+    private static final String COMPILER_PLUGIN_KEY = "org.apache.maven.plugins:maven-compiler-plugin";
+
+    private static Set<Map<String, String>> getJdkRequirementsFromModel(Model model) {
+        // effective model merges plugin configuration into executions,
+        // so we use set to remove duplicates
+        Set<Map<String, String>> requirementsSet = new HashSet<>();
+
+        Build build = model.getBuild();
+        if (build == null) {
+            return requirementsSet;
+        }
+
+        for (Plugin plugin : build.getPlugins()) {
+            String[] path;
+
+            if (TOOLCHAINS_PLUGIN_KEY.equals(plugin.getKey())) {
+                path = new String[] {"toolchains", "jdk"};
+            } else if (COMPILER_PLUGIN_KEY.equals(plugin.getKey())) {
+                path = new String[] {"jdkToolchain"};
+            } else {
+                continue;
+            }
+
+            List<Object> configs = new ArrayList<>();
+            configs.add(plugin.getConfiguration());
+            for (PluginExecution execution : plugin.getExecutions()) {
+                configs.add(execution.getConfiguration());
+            }
+
+            for (Object config : configs) {
+                Xpp3Dom dom = getXpp3DomChild(config, path);
+                if (dom == null) {
+                    continue;
+                }
+
+                Map<String, String> requirements = new LinkedHashMap<>();
+                for (Xpp3Dom child : dom.getChildren()) {
+                    if (!Util.isStringBlank(child.getValue())) {
+                        requirements.put(child.getName(), child.getValue().trim());
+                    }
+                }
+
+                if (!requirements.isEmpty()) {
+                    requirementsSet.add(requirements);
+                }
+            }
+        }
+
+        return requirementsSet;
+    }
+
+    private static Xpp3Dom getXpp3DomChild(Object config, String... path) {
+        if (!(config instanceof Xpp3Dom)) {
+            return null;
+        }
+
+        Xpp3Dom dom = (Xpp3Dom) config;
+        for (String name : path) {
+            dom = dom.getChild(name);
+            if (dom == null) {
+                return null;
+            }
+        }
+
+        return dom;
+    }
+
+    // same logic as maven's JavaToolchainFactory and DefaultToolchain.matchesRequirements
+    private static boolean toolchainMatchesRequirements(ToolchainModel toolchain, Map<String, String> requirements) {
+        Properties provides = toolchain.getProvides();
+
+        for (Map.Entry<String, String> requirement : requirements.entrySet()) {
+            String key = requirement.getKey();
+            String provided = provides.getProperty(key);
+
+            if (provided == null) {
+                return false;
+            }
+
+            RequirementMatcher matcher = "version".equals(key)
+                    ? RequirementMatcherFactory.createVersionMatcher(provided)
+                    : RequirementMatcherFactory.createExactMatcher(provided);
+
+            if (!matcher.matches(requirement.getValue())) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static String getToolchainJdkHome(ToolchainModel toolchain) {
+        Xpp3Dom jdkHomeDom = getXpp3DomChild(toolchain.getConfiguration(), "jdkHome");
+        if (jdkHomeDom == null || Util.isStringBlank(jdkHomeDom.getValue())) {
+            logger.warn("jdk toolchain {} doesn't have jdkHome", toolchain.getProvides());
+            return null;
+        }
+
+        // maven interpolates ${env.XXX} in toolchains.xml
+        String jdkHome = jdkHomeDom.getValue().trim();
+        try {
+            RegexBasedInterpolator interpolator = new RegexBasedInterpolator();
+            interpolator.addValueSource(new EnvarBasedValueSource());
+            jdkHome = interpolator.interpolate(jdkHome);
+        } catch (IOException | InterpolationException e) {
+            logger.warn("failed to interpolate jdkHome {}", jdkHome, e);
+        }
+
+        if (!Files.isDirectory(Paths.get(jdkHome))) {
+            logger.warn("jdk toolchain {} has jdkHome {} which doesn't exist", toolchain.getProvides(), jdkHome);
+            return null;
+        }
+
+        return jdkHome;
     }
 
     private static String getRepoHashKey(RemoteRepository repo) {

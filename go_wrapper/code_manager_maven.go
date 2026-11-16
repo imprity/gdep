@@ -15,6 +15,7 @@ import (
 type MavenInfo struct {
 	ExternalSourceJars       []string `json:"externalSourceJars"`
 	ProjectSourceDirectories []string `json:"projectSourceDirectories"`
+	JdkPaths                 []string `json:"jdkPaths"`
 }
 
 type CachedMavenInfo struct {
@@ -207,6 +208,22 @@ func GetMavenFingerPrintFiles(projectDir string) ([]string, error) {
 				fingerPrintFiles = append(fingerPrintFiles, file)
 				break
 			}
+		}
+	}
+
+	// toolchains.xml lives outside of the project but decides which jdk project uses
+	//
+	// NOTE: global toolchains.xml (${maven.home}/conf/toolchains.xml) isn't tracked
+	// since we don't know where maven is installed
+	if userHome, err := os.UserHomeDir(); err == nil {
+		toolchainsXml := filepath.Join(userHome, ".m2", "toolchains.xml")
+
+		exists, err := RegularFileExists(toolchainsXml)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			fingerPrintFiles = append(fingerPrintFiles, toolchainsXml)
 		}
 	}
 
